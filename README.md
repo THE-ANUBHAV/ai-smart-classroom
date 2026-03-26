@@ -1,41 +1,41 @@
 # AI‑Powered Smart Classroom Engagement Learning Analytics System
 
-An IoT + AI system that monitors classroom environment and activity using low‑cost sensors, then applies machine learning to estimate **engagement levels (High / Medium / Low)** and visualize them on an interactive dashboard for teachers and coordinators.[file:47][web:50]
+An IoT + AI system that monitors classroom environment and activity using low‑cost sensors, then applies machine learning to estimate **engagement levels (High / Medium / Low)** and visualize them on an interactive dashboard for teachers and coordinators.
 
 ---
 
 ## 🚀 Features
 
-- Real‑time collection of temperature, humidity, motion, and noise data using ESP32 and classroom sensors.[file:17][web:55]  
-- Engagement analytics using machine learning models (e.g., Random Forest, XGBoost) on aggregated sensor data.[file:47][web:52]  
-- Web-based dashboard for teachers with live charts, historical trends, and engagement summaries per lecture and classroom.[file:47][web:56]  
-- Role-based access (teacher, admin) with secure login and controlled views.[file:47]  
-- Privacy-friendly design: no individual student identification or video recording; only aggregated classroom-level metrics.[file:47][web:59]
+- Real‑time collection of temperature, humidity, motion, and noise data using ESP32 and classroom sensors.
+- Engagement analytics using machine learning models (e.g., Random Forest, XGBoost) on aggregated sensor data.  
+- Web-based dashboard for teachers with live charts, historical trends, and engagement summaries per lecture and classroom.
+- Role-based access (teacher, admin) with secure login and controlled views. 
+- Privacy-friendly design: no individual student identification or video recording; only aggregated classroom-level metrics.
 
 ---
 
 ## 🧩 System Architecture
 
-The system is organized into five layers:[file:47]
+The system is organized into five layers:
 
 1. **IoT Data Collection Layer** – ESP32 board with PIR motion, sound, and DHT11/DHT22 sensors deployed in the classroom.  
-2. **Data Transmission Layer** – Wi‑Fi connectivity using HTTP or MQTT to send timestamped readings to the server.[file:17][web:55]  
-3. **Data Storage Layer** – Database (PostgreSQL / MongoDB) storing raw sensor readings, sessions, and derived metrics.[file:47]  
-4. **AI Analytics Layer** – Python services for feature extraction, model training, engagement classification, and clustering.[file:47][web:43]  
-5. **Presentation Layer** – Web dashboard (e.g., React / Streamlit / Flask templates) for visualization and reporting.[file:47][web:54]
+2. **Data Transmission Layer** – Wi‑Fi connectivity using HTTP or MQTT to send timestamped readings to the server. 
+3. **Data Storage Layer** – Database (PostgreSQL / MongoDB) storing raw sensor readings, sessions, and derived metrics.
+4. **AI Analytics Layer** – Python services for feature extraction, model training, engagement classification, and clustering.
+5. **Presentation Layer** – Web dashboard (e.g., React / Streamlit / Flask templates) for visualization and reporting.
 
 ---
 
 ## 🛠️ Hardware & Software Stack
 
-**Hardware**[file:17][web:58]  
+**Hardware**
 - ESP32 development board (x1–2)  
 - DHT11/DHT22 temperature & humidity sensors  
 - PIR motion sensors (HC‑SR501)  
 - Sound sensor modules (KY‑037/KY‑038)  
 - Breadboard, jumper wires, resistors, 5V power source / power bank  
 
-**Software**[file:47][web:55]  
+**Software** 
 - Firmware: Arduino IDE / ESP-IDF (C/C++) for ESP32  
 - Backend: Python (Flask / FastAPI), REST or MQTT ingestion APIs  
 - Database: PostgreSQL or MongoDB  
@@ -93,7 +93,7 @@ pip install -r requirements.txt
 
 3. **Configure environment**
 
-Create a `.env` file in `backend/` with values like:[file:47]
+Create a `.env` file in `backend/` with values like:
 
 ```bash
 DATABASE_URL=postgresql://user:password@localhost:5432/classroom_db
@@ -127,10 +127,10 @@ npm start
 
 ## 📊 How It Works
 
-1. ESP32 reads sensor values every 5–10 seconds and sends them to the backend with timestamps and classroom ID.[file:47][web:28]  
-2. Backend stores readings, aggregates them into time windows, and computes features (mean, variance, deltas, etc.).[file:47][web:32]  
-3. Trained ML models classify engagement levels (High/Medium/Low) for each window and save the results in the database.[file:47][web:45]  
-4. Dashboard fetches metrics via APIs and displays live gauges, time‑series charts, and daily/weekly summaries for teachers and admins.[file:47][web:56]
+1. ESP32 reads sensor values every 5–10 seconds and sends them to the backend with timestamps and classroom ID. 
+2. Backend stores readings, aggregates them into time windows, and computes features (mean, variance, deltas, etc.). 
+3. Trained ML models classify engagement levels (High/Medium/Low) for each window and save the results in the database.  
+4. Dashboard fetches metrics via APIs and displays live gauges, time‑series charts, and daily/weekly summaries for teachers and admins.
 
 ---
 
@@ -138,15 +138,15 @@ npm start
 
 - Teachers monitor engagement during a lecture and quickly see when attention drops.  
 - Coordinators compare engagement across classrooms or periods and correlate with temperature/noise conditions.  
-- Departments gather evidence for pedagogical changes and infrastructure improvements based on real data.[file:47][web:59]
+- Departments gather evidence for pedagogical changes and infrastructure improvements based on real data.
 
 ---
 
 ## 🔒 Privacy & Ethical Considerations
 
-- No storage of personally identifiable student data, faces, or raw audio—only aggregated sensor readings.[file:47][web:22]  
+- No storage of personally identifiable student data, faces, or raw audio—only aggregated sensor readings.
 - Engagement analytics are at classroom level, not per individual.  
-- Pilot deployments should be conducted with informed consent from faculty and students and approval from the department.[file:47][web:24]
+- Pilot deployments should be conducted with informed consent from faculty and students and approval from the department.
 
 ---
 
@@ -154,12 +154,12 @@ npm start
 
 - `docs/synopsis.pdf` – Project synopsis and detailed design document.  
 - `docs/report.pdf` – Full project report (architecture, implementation, results).  
-- `docs/user-manual.pdf` – Instructions for teachers and admins to use the dashboard.[file:47]
+- `docs/user-manual.pdf` – Instructions for teachers and admins to use the dashboard.
 
 ---
 
 ## 👨‍💻 Team
 
-- **Anubhav Singh** – Team Leader / Tech Lead & AI‑ML Engineer (overall architecture, IoT–backend–ML integration, model design, and final delivery).[file:47]  
-- **Bhartendu Ji** – IoT & Backend Developer (ESP32 hardware, sensor integration, firmware, ingestion APIs, and database pipeline).[file:47]  
-- **Stuti Mittal** – Frontend, QA & Documentation Lead (dashboard UI/UX, testing, documentation, and presentation material).[file:47]
+- **Anubhav Singh** – Team Leader / Tech Lead & AI‑ML Engineer (overall architecture, IoT–backend–ML integration, model design, and final delivery).
+- **Bhartendu Ji** – IoT & Backend Developer (ESP32 hardware, sensor integration, firmware, ingestion APIs, and database pipeline).
+- **Stuti Mittal** – Frontend, QA & Documentation Lead (dashboard UI/UX, testing, documentation, and presentation material).
