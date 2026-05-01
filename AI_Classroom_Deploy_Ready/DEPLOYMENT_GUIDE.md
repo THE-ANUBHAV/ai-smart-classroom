@@ -89,8 +89,8 @@ Then go to **Tools → Board → Boards Manager** and install `esp32`.
 1. Open `esp32_firmware/esp32_node1_env.ino` in Arduino IDE.
 2. At the top of the file, find the **★★★ CHANGE THESE THREE LINES** section:
 ```cpp
-#define WIFI_SSID       "GLA"
-#define WIFI_PASSWORD   "GLACAMPUS"
+#define WIFI_SSID       "TP-Link_7AE6"
+#define WIFI_PASSWORD   "36144044"
 #define FLASK_SERVER_URL "https://ai-smart-classroom.onrender.com/api/sensor-data"
 ```
 3. Replace the Render URL with your actual Render app URL.
@@ -107,8 +107,8 @@ Then go to **Tools → Board → Boards Manager** and install `esp32`.
 1. Open `esp32_firmware/esp32_node2_motion.ino` in Arduino IDE.
 2. At the top, find the **★★★ CHANGE THESE THREE LINES** section:
 ```cpp
-#define WIFI_SSID      "GLA"
-#define WIFI_PASSWORD  "GLACAMPUS"
+#define WIFI_SSID      "TP-Link_7AE6"
+#define WIFI_PASSWORD  "36144044"
 #define SERVER_URL     "https://ai-smart-classroom.onrender.com/api/sensor-data"
 ```
 3. Replace the Render URL with your actual Render app URL.

@@ -11,70 +11,56 @@
  *    - DHT11  Temperature/Humidity    → GPIO 4  (optional)
  *
  *  This board sends data to:
- *    1. Flask Dashboard (Render / Local) — for ML & live UI
- *    2. ThingWorx Cloud  — optional, disabled by default
+ *    - Flask Dashboard (Render / Local) — for ML & live UI
  * ================================================================
  */
 
-#include <WiFi.h>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
 
 // ================================================================
 //  ★★★  CHANGE THESE THREE LINES BEFORE UPLOADING  ★★★
 // ================================================================
 
-#define WIFI_SSID    "GLA"                        // ← Your WiFi name
-#define WIFI_PASSWORD "GLACAMPUS"                 // ← Your WiFi password
-#define SERVER_URL   "https://YOUR-RENDER-APP.onrender.com/api/sensor-data"
-                                                   // ↑ Paste your Render URL here
-                                                   //   OR use local IP while testing:
-                                                   //   "http://192.168.x.x:5000/api/sensor-data"
+#define WIFI_SSID "TP-Link_7AE6" // ← Your WiFi name
+#define WIFI_PASSWORD "36144044" // ← Your WiFi password
+#define SERVER_URL "https://ai-smart-classroom.onrender.com/api/sensor-data"
+// ↑ Paste your Render URL here
+//   OR use local IP while testing:
+//   "http://192.168.x.x:5000/api/sensor-data"
 
 // ================================================================
 //  Device Identity — no need to change these
 // ================================================================
-#define ESP_ID  "ESP32-02"
-#define ROOM    "Room A101"
+#define ESP_ID "ESP32-02"
+#define ROOM "Room A101"
 
 // ================================================================
 //  DHT on Node 2 — set false if no DHT sensor on this board
-//  When false, temperature & humidity are NOT sent — preventing
-//  Node 2 from overwriting Node 1's real sensor values.
 // ================================================================
 #define HAS_DHT_NODE2 true
 
 // ================================================================
-//  ThingWorx — set to true only if you want direct TWX push
-// ================================================================
-#define USE_THINGWORX false
-
-#if USE_THINGWORX
-  #define TWX_SERVER  "http://172.16.78.20:7080"
-  #define TWX_APP_KEY "ab608e23-00b8-433c-8a2c-a5adb4593de6"
-  #define TWX_THING   "project_esp32_thing_02"
-#endif
-
-// ================================================================
 //  Pin definitions — match your wiring
 // ================================================================
-#define PIR1_PIN        14
-#define PIR2_PIN        27
-#define PIR3_PIN        26
-#define MQ135_PIN       35    // ADC1 — analog air quality
-#define LED_PIN          2    // Built-in LED for status blink
+#define PIR1_PIN 14
+#define PIR2_PIN 27
+#define PIR3_PIN 26
+#define MQ135_PIN 35 // ADC1 — analog air quality
+#define LED_PIN 2    // Built-in LED for status blink
 
 #if HAS_DHT_NODE2
-  #define DHT_PIN  4
-  #define DHT_TYPE DHT11
-  DHT dht(DHT_PIN, DHT_TYPE);
+#define DHT_PIN 4
+#define DHT_TYPE DHT11
+DHT dht(DHT_PIN, DHT_TYPE);
 #endif
 
 // ================================================================
 //  Timing
 // ================================================================
-#define SEND_INTERVAL_MS 5000   // Send every 5 seconds
+#define SEND_INTERVAL_MS 5000 // Send every 5 seconds
 
 // ================================================================
 //  Globals
@@ -99,12 +85,13 @@ void setup() {
   pinMode(PIR3_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 
-  #if HAS_DHT_NODE2
-    dht.begin();
-    Serial.println("[DHT] DHT sensor initialized on GPIO 4");
-  #else
-    Serial.println("[DHT] No DHT on Node 2 — temp/humidity NOT sent from this board");
-  #endif
+#if HAS_DHT_NODE2
+  dht.begin();
+  Serial.println("[DHT] DHT sensor initialized on GPIO 4");
+#else
+  Serial.println(
+      "[DHT] No DHT on Node 2 — temp/humidity NOT sent from this board");
+#endif
 
   // Connect to WiFi
   Serial.printf("[WiFi] Connecting to %s", WIFI_SSID);
@@ -115,7 +102,8 @@ void setup() {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   }
   digitalWrite(LED_PIN, LOW);
-  Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("\n[WiFi] Connected! IP: %s\n",
+                WiFi.localIP().toString().c_str());
   Serial.printf("[HTTP] Target: %s\n", SERVER_URL);
 
   // PIR sensors need ~10s warm-up after power-on
@@ -145,68 +133,58 @@ void loop() {
     int pir2 = digitalRead(PIR2_PIN);
     int pir3 = digitalRead(PIR3_PIN);
 
-    int motionScore = (pir1 + pir2 + pir3) * 33;  // 0, 33, 66, or 99
+    int motionScore = (pir1 + pir2 + pir3) * 33; // 0, 33, 66, or 99
 
-    int airRaw    = analogRead(MQ135_PIN);
+    int airRaw = analogRead(MQ135_PIN);
     int airQuality = map(airRaw, 0, 4095, 0, 500); // Map to 0-500 AQI proxy
 
     // Debug output — open Serial Monitor at 115200 baud to see this
     Serial.printf("[Node2 #%d] PIR: %d/%d/%d | Motion: %d%% | AQ: %d (raw %d)",
-                  ++sendCount, pir1, pir2, pir3, motionScore, airQuality, airRaw);
+                  ++sendCount, pir1, pir2, pir3, motionScore, airQuality,
+                  airRaw);
 
-    #if HAS_DHT_NODE2
-      float temperature = dht.readTemperature();
-      float humidity    = dht.readHumidity();
-      if (!isnan(temperature)) Serial.printf(" | Temp: %.1f°C | Hum: %.1f%%", temperature, humidity);
-      Serial.println();
-      pushToFlask(pir1, pir2, pir3, airQuality, temperature, humidity);
-    #else
-      Serial.println();
-      pushToFlask(pir1, pir2, pir3, airQuality, NAN, NAN);
-    #endif
-
-    // Optional: Push directly to ThingWorx
-    #if USE_THINGWORX
-      updateThingWorxProperty("pir1",         pir1 ? "true" : "false");
-      updateThingWorxProperty("pir2",         pir2 ? "true" : "false");
-      updateThingWorxProperty("pir3",         pir3 ? "true" : "false");
-      updateThingWorxProperty("motion_score", String(motionScore));
-      updateThingWorxProperty("air_quality",  String(airRaw));
-      #if HAS_DHT_NODE2
-        if (!isnan(temperature)) {
-          updateThingWorxProperty("temperature_back", String(temperature));
-          updateThingWorxProperty("humidity_back",    String(humidity));
-        }
-      #endif
-    #endif
+#if HAS_DHT_NODE2
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    if (!isnan(temperature))
+      Serial.printf(" | Temp: %.1f°C | Hum: %.1f%%", temperature, humidity);
+    Serial.println();
+    pushToFlask(pir1, pir2, pir3, airQuality, temperature, humidity);
+#else
+    Serial.println();
+    pushToFlask(pir1, pir2, pir3, airQuality, NAN, NAN);
+#endif
 
     // Blink LED to confirm a successful cycle
-    digitalWrite(LED_PIN, HIGH); delay(80); digitalWrite(LED_PIN, LOW);
+    digitalWrite(LED_PIN, HIGH);
+    delay(80);
+    digitalWrite(LED_PIN, LOW);
   }
 }
 
 // ================================================================
 //  Send data to Flask Dashboard (Render URL or Local IP)
-//  Only sends temp/humidity if HAS_DHT_NODE2 is true AND values
-//  are valid — preventing overwriting Node 1's real readings.
 // ================================================================
-void pushToFlask(int p1, int p2, int p3, int airQuality, float temp, float hum) {
+void pushToFlask(int p1, int p2, int p3, int airQuality, float temp,
+                 float hum) {
   HTTPClient http;
   http.begin(SERVER_URL);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(8000);  // 8-second timeout for Render cold starts
+  http.setTimeout(8000); // 8-second timeout for Render cold starts
 
   StaticJsonDocument<256> doc;
-  doc["esp_id"]      = ESP_ID;
-  doc["room"]        = ROOM;
-  doc["pir1"]        = p1;
-  doc["pir2"]        = p2;
-  doc["pir3"]        = p3;
+  doc["esp_id"] = ESP_ID;
+  doc["room"] = ROOM;
+  doc["pir1"] = p1;
+  doc["pir2"] = p2;
+  doc["pir3"] = p3;
   doc["air_quality"] = airQuality;
 
   // Only include temp/humidity if DHT is present on this board AND reading is valid
-  if (!isnan(temp)) doc["temperature"] = round(temp * 10.0) / 10.0;
-  if (!isnan(hum))  doc["humidity"]    = round(hum  * 10.0) / 10.0;
+  if (!isnan(temp))
+    doc["temperature"] = round(temp * 10.0) / 10.0;
+  if (!isnan(hum))
+    doc["humidity"] = round(hum * 10.0) / 10.0;
 
   String payload;
   serializeJson(doc, payload);
@@ -219,23 +197,3 @@ void pushToFlask(int p1, int p2, int p3, int airQuality, float temp, float hum) 
   }
   http.end();
 }
-
-// ================================================================
-//  ThingWorx property update (only compiled if USE_THINGWORX true)
-// ================================================================
-#if USE_THINGWORX
-void updateThingWorxProperty(String propName, String value) {
-  if (WiFi.status() != WL_CONNECTED) return;
-  HTTPClient http;
-  String url = String(TWX_SERVER) + "/Thingworx/Things/" + TWX_THING + "/Properties/" + propName;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("appKey", TWX_APP_KEY);
-  http.addHeader("Accept", "application/json");
-  String body = "{\"" + propName + "\":" + value + "}";
-  int code = http.PUT(body);
-  Serial.printf("[TWX] %s → %d\n", propName.c_str(), code);
-  http.end();
-  delay(300);
-}
-#endif

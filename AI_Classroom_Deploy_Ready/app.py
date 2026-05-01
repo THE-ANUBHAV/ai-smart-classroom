@@ -306,6 +306,15 @@ def check_and_emit_alerts(data, room):
 
 # ═══ REST API ENDPOINTS ═══
 
+@app.route('/api/live', methods=['GET'])
+def api_live():
+    """Get the absolute latest real-time reading for HTTP Polling REST API."""
+    room = request.args.get('room', 'Room A101')
+    readings = get_readings(room, limit=1)
+    if readings:
+        return jsonify({'status': 'ok', 'reading': readings[0]})
+    return jsonify({'status': 'error', 'message': 'No data available'})
+
 @app.route('/api/readings', methods=['GET'])
 def api_readings():
     """Get sensor readings for a room."""
@@ -409,6 +418,71 @@ def api_export():
     return jsonify(export_data)
 
 
+@app.route('/api/seed-demo', methods=['POST'])
+def api_seed_demo():
+    """
+    Inject 7 days of realistic demo data into the database.
+    Call once before a presentation: POST /api/seed-demo
+    Simulates a full week of classroom activity with natural patterns.
+    """
+    import random as rnd
+    room = request.args.get('room', 'Room A101')
+    now = datetime.now()
+
+    # Realistic classroom scenarios that cycle through the day
+    scenarios = [
+        # (name, temp, humidity, motion_pct, sound_db, air_q, engagement, pir1,pir2,pir3)
+        ("morning_warmup",   24.5, 52, 60,  55, 120, 62,  1, 1, 0),
+        ("active_lecture",   25.8, 55, 85,  68, 180, 82,  1, 1, 1),
+        ("peak_engagement",  26.0, 57, 92,  72, 200, 91,  1, 1, 1),
+        ("group_discussion", 26.5, 58, 78,  76, 210, 75,  1, 1, 1),
+        ("post_lunch_dip",   27.1, 60, 45,  50, 150, 48,  1, 0, 1),
+        ("recovery",         26.8, 59, 65,  60, 170, 66,  1, 1, 0),
+        ("quiet_study",      25.5, 54, 35,  42, 100, 55,  0, 1, 0),
+        ("end_of_class",     26.2, 56, 80,  70, 190, 73,  1, 1, 1),
+    ]
+
+    count = 0
+    for day_offset in range(7, 0, -1):
+        base_time = now - timedelta(days=day_offset)
+        # Generate readings every 3 minutes across an 8-hour class day
+        for minute in range(0, 480, 3):
+            ts = base_time + timedelta(minutes=minute)
+            sc = scenarios[minute % len(scenarios)]
+            # Add realistic noise
+            reading = {
+                'room': room,
+                'esp_id': 'ESP32-DEMO',
+                'timestamp': ts.isoformat(),
+                'temperature': round(sc[1] + rnd.uniform(-0.8, 0.8), 1),
+                'humidity': round(sc[2] + rnd.uniform(-3, 3), 1),
+                'motion_pct': round(sc[3] + rnd.uniform(-10, 10), 1),
+                'sound_level': round(sc[4] + rnd.uniform(-5, 5), 1),
+                'air_quality': round(sc[5] + rnd.uniform(-15, 15)),
+                'engagement_score': round(max(10, min(99, sc[7*1] + rnd.uniform(-8, 8))), 1),
+                'engagement_level': sc[8] if sc[7] > 70 else ('MEDIUM' if sc[7] > 45 else 'LOW'),
+                'pir1': sc[7], 'pir2': sc[8], 'pir3': sc[7],
+                'ldr_value': rnd.randint(400, 800),
+                'sound_raw': rnd.randint(1800, 2800),
+                'source': 'demo'
+            }
+            # Fix engagement_level using score
+            score = reading['engagement_score']
+            reading['engagement_level'] = 'HIGH' if score >= 80 else ('MEDIUM' if score >= 50 else 'LOW')
+            try:
+                insert_reading(reading)
+                count += 1
+            except:
+                pass
+
+    print(f"[DEMO] Seeded {count} demo readings for {room}")
+    return jsonify({
+        'status': 'ok',
+        'message': f'Seeded {count} demo readings for {room} across 7 days',
+        'room': room
+    })
+
+
 @app.route('/api/health', methods=['GET'])
 def api_health():
     """Health check endpoint for ESP32 to verify server is running."""
@@ -422,6 +496,66 @@ def api_health():
 
 
 # ═══ WEBSOCKET EVENTS ═══
+
+
+@socketio.on('start_demo_stream')
+def handle_demo_stream(data):
+    """
+    When dashboard emits 'start_demo_stream', begin auto-firing
+    realistic sensor readings every 4 seconds — no hardware needed.
+    Perfect for live presentations.
+    """
+    import random as rnd
+    room = data.get('room', 'Room A101')
+
+    scenarios = [
+        dict(temperature=24.5, humidity=52, pir1=1, pir2=1, pir3=0, sound_level=55, air_quality=120, engagement=62, level='MEDIUM', motion=66),
+        dict(temperature=25.8, humidity=55, pir1=1, pir2=1, pir3=1, sound_level=68, air_quality=180, engagement=82, level='HIGH',   motion=99),
+        dict(temperature=26.0, humidity=57, pir1=1, pir2=1, pir3=1, sound_level=72, air_quality=200, engagement=91, level='HIGH',   motion=99),
+        dict(temperature=26.5, humidity=58, pir1=1, pir2=1, pir3=1, sound_level=76, air_quality=210, engagement=75, level='HIGH',   motion=99),
+        dict(temperature=27.1, humidity=60, pir1=1, pir2=0, pir3=1, sound_level=50, air_quality=150, engagement=48, level='LOW',    motion=66),
+        dict(temperature=26.8, humidity=59, pir1=1, pir2=1, pir3=0, sound_level=60, air_quality=170, engagement=66, level='MEDIUM', motion=66),
+        dict(temperature=25.5, humidity=54, pir1=0, pir2=1, pir3=0, sound_level=42, air_quality=100, engagement=55, level='MEDIUM', motion=33),
+        dict(temperature=26.2, humidity=56, pir1=1, pir2=1, pir3=1, sound_level=70, air_quality=190, engagement=73, level='HIGH',   motion=99),
+    ]
+
+    def stream_loop():
+        step = 0
+        while True:
+            sc = scenarios[step % len(scenarios)]
+            payload = {
+                'timestamp': datetime.now().isoformat(),
+                'room': room,
+                'esp_id': 'ESP32-DEMO',
+                'temperature': round(sc['temperature'] + rnd.uniform(-0.5, 0.5), 1),
+                'humidity':    round(sc['humidity']    + rnd.uniform(-2, 2), 1),
+                'pir1': sc['pir1'], 'pir2': sc['pir2'], 'pir3': sc['pir3'],
+                'sound_level': round(sc['sound_level'] + rnd.uniform(-4, 4), 1),
+                'air_quality': round(sc['air_quality'] + rnd.uniform(-10, 10)),
+                'motion':      sc['motion'],
+                'engagement':  round(max(10, min(99, sc['engagement'] + rnd.uniform(-6, 6))), 1),
+                'level':       sc['level'],
+                'ldr_value':   rnd.randint(400, 800),
+                'method':      'demo',
+                'source':      'demo_stream'
+            }
+            try:
+                insert_reading({
+                    **payload,
+                    'engagement_score': payload['engagement'],
+                    'engagement_level': payload['level'],
+                    'motion_pct':       payload['motion'],
+                })
+            except:
+                pass
+            socketio.emit('new_reading', payload)
+            step += 1
+            time.sleep(4)
+
+    threading.Thread(target=stream_loop, daemon=True).start()
+    emit('demo_stream_started', {'status': 'ok', 'room': room, 'interval': 4})
+    print(f"[DEMO STREAM] Live demo started for {room}")
+
 
 @socketio.on('connect')
 def handle_connect():

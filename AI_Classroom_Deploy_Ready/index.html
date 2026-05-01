@@ -1794,6 +1794,7 @@
         </div>
         <div class="topbar__actions">
           <select class="select" id="classroomSelect" title="Classroom selector"></select>
+          <button id="demoModeBtn" onclick="startDemoMode()" style="padding:0 14px;height:36px;border-radius:6px;background:linear-gradient(90deg,#ff6a00,#ee0979);color:#fff;font-weight:700;font-size:0.8rem;letter-spacing:1px;border:none;cursor:pointer;box-shadow:0 0 16px rgba(255,106,0,0.5);animation:pulse 2s ease infinite" title="Start Demo Mode — no hardware needed">🎬 DEMO MODE</button>
           <div class="clock"><span>Clock</span><strong id="clockText">--:--:--</strong></div>
           <div class="clock"><span>Session</span><strong id="sessionTimer">00:00:00</strong></div>
           <button class="icon-button" data-view="alerts" title="Notifications">🔔<span class="badge-dot hidden" id="unreadBadge">0</span></button>
@@ -1915,6 +1916,36 @@
 
     // Make socket globally accessible
     const socket = io();
+
+    // ═══ DEMO MODE — Presentation helper ═══
+    window._demoActive = false;
+    window.startDemoMode = async function() {
+      if (window._demoActive) {
+        alert('Demo mode is already running! The dashboard is receiving live simulated data.');
+        return;
+      }
+      window._demoActive = true;
+      const btn = document.getElementById('demoModeBtn');
+      if (btn) { btn.textContent = '✅ DEMO RUNNING'; btn.style.background = 'linear-gradient(90deg,#00ff55,#00b3ff)'; }
+
+      // Step 1: Seed 7 days of historical data
+      try {
+        const res = await fetch('/api/seed-demo', { method: 'POST' });
+        const json = await res.json();
+        console.log('[DEMO] Seeded:', json.message);
+      } catch(e) { console.warn('[DEMO] Seed failed:', e); }
+
+      // Step 2: Start live streaming via WebSocket
+      socket.emit('start_demo_stream', { room: 'Room A101' });
+
+      // Step 3: Listen for new readings and update dashboard
+      socket.on('new_reading', function(data) {
+        if (window._injectReading) window._injectReading(data);
+      });
+
+      AEGIS_AUDIO.speak('Demo mode activated. Simulated sensor data is now streaming.');
+    };
+
 
     (() => {
       "use strict";
@@ -2125,12 +2156,14 @@
 
       function createInitialReading() {
         return normalizeReading({
-          temperature: 23.2,
-          humidity: 55,
-          motion_pir1: true,
-          motion_pir2: true,
-          motion_pir3: true,
-          sound_level: 58,
+          temperature: 0,
+          humidity: 0,
+          motion_pir1: false,
+          motion_pir2: false,
+          motion_pir3: false,
+          sound_level: 0,
+          air_quality: 0,
+          engagement_score: 0,
           timestamp: nowISO()
         }, "A.E.G.I.S. Core");
       }
@@ -2259,29 +2292,28 @@
 
       function normalizeReading(raw, source) {
         const previous = state.currentReading || getFilteredReadings(1)[0] || {};
-        const temperature = numberFrom(raw.temperature ?? raw.temp ?? raw.t, previous.temperature ?? 23.2);
-        const humidity = numberFrom(raw.humidity ?? raw.hum ?? raw.rh, previous.humidity ?? 55);
-        const sound = numberFrom(raw.sound_level ?? raw.sound ?? raw.db ?? raw.noise, previous.sound_level ?? 58);
-        const motion1 = booleanFrom(raw.motion_pir1 ?? raw.pir1 ?? raw.motion1 ?? raw.left, previous.motion_pir1 ?? true);
-        const motion2 = booleanFrom(raw.motion_pir2 ?? raw.pir2 ?? raw.motion2 ?? raw.center, previous.motion_pir2 ?? true);
-        const motion3 = booleanFrom(raw.motion_pir3 ?? raw.pir3 ?? raw.motion3 ?? raw.right, previous.motion_pir3 ?? true);
+        const temperature = numberFrom(raw.temperature ?? raw.temp ?? raw.t, previous.temperature ?? 0);
+        const humidity = numberFrom(raw.humidity ?? raw.hum ?? raw.rh, previous.humidity ?? 0);
+        const sound = numberFrom(raw.sound_level ?? raw.sound ?? raw.db ?? raw.noise, previous.sound_level ?? 0);
+        const motion1 = booleanFrom(raw.motion_pir1 ?? raw.pir1 ?? raw.motion1 ?? raw.left, previous.motion_pir1 ?? false);
+        const motion2 = booleanFrom(raw.motion_pir2 ?? raw.pir2 ?? raw.motion2 ?? raw.center, previous.motion_pir2 ?? false);
+        const motion3 = booleanFrom(raw.motion_pir3 ?? raw.pir3 ?? raw.motion3 ?? raw.right, previous.motion_pir3 ?? false);
         const motionAverage = numberFrom(raw.motion_activity ?? raw.motion, null);
         const motionPercent = motionAverage === null ? ((Number(motion1) + Number(motion2) + Number(motion3)) / 3) * 100 : clamp(motionAverage, 0, 100);
         const sessionMinutes = (Date.now() - state.sessionStart) / 60000;
-        const soundScore = clamp(100 - Math.abs(sound - 60) * 2, 0, 100);
-        const tempScore = clamp(100 - Math.abs(temperature - 23) * 8, 0, 100);
-        const timeDecay = sessionMinutes <= 20 ? 100 : clamp(100 - (sessionMinutes - 20) * 1.9, 55, 100);
-        const computedScore = clamp(
-          0.40 * motionPercent +
-          0.25 * soundScore +
-          0.20 * tempScore +
-          0.15 * timeDecay,
-          0,
-          100
-        );
+        
+        // Only calculate scores if we have actual data (temp > 0)
+        let soundScore = 0, tempScore = 0, timeDecay = 0, computedScore = 0;
+        if (temperature > 0) {
+          soundScore = clamp(100 - Math.abs(sound - 60) * 2, 0, 100);
+          tempScore = clamp(100 - Math.abs(temperature - 23) * 8, 0, 100);
+          timeDecay = sessionMinutes <= 20 ? 100 : clamp(100 - (sessionMinutes - 20) * 1.9, 55, 100);
+          computedScore = clamp(0.40 * motionPercent + 0.25 * soundScore + 0.20 * tempScore + 0.15 * timeDecay, 0, 100);
+        }
+        
         const score = clamp(numberFrom(raw.engagement_score ?? raw.engagement, computedScore), 0, 100);
         const classroom = getSelectedClassroom();
-        const co2 = numberFrom(raw.co2 ?? raw.air_quality ?? raw.mq135, calculateCO2Proxy(temperature, humidity, classroom.capacity, motionPercent));
+        const co2 = numberFrom(raw.co2 ?? raw.air_quality ?? raw.mq135, temperature > 0 ? calculateCO2Proxy(temperature, humidity, classroom.capacity, motionPercent) : 0);
         const lightLevel = numberFrom(raw.light_level ?? raw.ldr ?? raw.lux, previous.light_level ?? null);
         const timestamp = raw.timestamp ? new Date(raw.timestamp).toISOString() : nowISO();
         return {
