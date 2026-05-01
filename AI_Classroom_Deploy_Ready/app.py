@@ -32,7 +32,7 @@ from ml_model import predict_engagement, load_models, get_engagement_insights, c
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.config['SECRET_KEY'] = 'smartclassroom-team8-gla-2026'
 CORS(app, origins="*")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Track connected ESP32 devices and active sessions
 connected_devices = {}

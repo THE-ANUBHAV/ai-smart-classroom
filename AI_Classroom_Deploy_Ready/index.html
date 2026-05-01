@@ -2504,16 +2504,17 @@
 
       function connectWebSocket() {
         disconnectSocket();
-        if (!state.settings.iot.endpoint) {
-          state.settings.iot.lastMessage = "Add a Socket.IO endpoint";
-          persistSettings();
-          renderView("settings");
-          return;
+        
+        // Auto-detect the URL if it's empty
+        let endpoint = (state.settings.iot.endpoint || "").trim();
+        if (!endpoint || endpoint === "https://ai-smart-classroom-oy6n.onrender.com") {
+          endpoint = window.location.origin;
         }
+
         try {
-          // Use io() from Socket.IO client
-          state.socket = io(state.settings.iot.endpoint, {
+          state.socket = io(endpoint, {
             transports: ['websocket', 'polling'],
+            upgrade: true,
             reconnection: true
           });
 
