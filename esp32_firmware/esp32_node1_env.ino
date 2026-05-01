@@ -9,8 +9,7 @@
  *    - Light  → LDR Analog              (GPIO 35)
  *
  *  This board sends data to:
- *    1. Flask Dashboard (Render / Local) — for ML & live UI
- *    2. ThingWorx Cloud  — optional, disabled by default
+ *    - Flask Dashboard (Render / Local) — for ML & live UI
  * ================================================================
  */
 
@@ -18,15 +17,16 @@
 #include <DHT.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 // ================================================================
 //  ★★★  CHANGE THESE THREE LINES BEFORE UPLOADING  ★★★
 // ================================================================
 
-#define WIFI_SSID "" // ← Your WiFi name
-#define WIFI_PASSWORD "" // ← Your WiFi password
+#define WIFI_SSID "TP-Link_7AE6" // ← Your WiFi name
+#define WIFI_PASSWORD "36144044" // ← Your WiFi password
 #define FLASK_SERVER_URL                                                       \
-  "https://ai-smart-classroom.onrender.com/api/sensor-data"
+  "https://ai-smart-classroom-oy6n.onrender.com/api/sensor-data"
 // ↑ Paste your Render URL here
 //   OR use local IP while testing:
 //   "http://192.168.x.x:5000/api/sensor-data"
@@ -36,17 +36,6 @@
 // ================================================================
 #define ESP_ID "ESP32-01"
 #define ROOM "Room A101"
-
-// ================================================================
-//  ThingWorx — set to true only if you want direct TWX push
-// ================================================================
-#define USE_THINGWORX false
-
-#if USE_THINGWORX
-#define TWX_SERVER "http://172.16.78.20:7080"
-#define TWX_APP_KEY "ab608e23-00b8-433c-8a2c-a5adb4593de6"
-#define TWX_THING "project_esp32_thing_01"
-#endif
 
 // ================================================================
 //  Pin definitions — match your wiring
@@ -112,16 +101,6 @@ void loop() {
   // Push to Flask dashboard (primary — always enabled)
   pushToFlask(temperature, humidity, soundDb, soundRaw, lightRaw);
 
-// Push directly to ThingWorx (optional — enable USE_THINGWORX above)
-#if USE_THINGWORX
-  if (!isnan(temperature) && !isnan(humidity)) {
-    updateThingWorxProperty("temperature_front", String(temperature));
-    updateThingWorxProperty("humidity_front", String(humidity));
-  }
-  updateThingWorxProperty("sound_level", String(soundRaw));
-  updateThingWorxProperty("light_level", String(lightRaw));
-#endif
-
   delay(SEND_INTERVAL_MS);
 }
 
@@ -135,10 +114,13 @@ void pushToFlask(float temp, float hum, float soundDb, int soundRaw,
     return;
   }
 
+  WiFiClientSecure client;
+  client.setInsecure(); // Allow connection to Render without certificate management
+  
   HTTPClient http;
-  http.begin(FLASK_SERVER_URL);
+  http.begin(client, FLASK_SERVER_URL);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(8000); // 8-second timeout for Render cold starts
+  http.setTimeout(15000); // 15-second timeout for Render cold starts
 
   StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;
@@ -162,24 +144,3 @@ void pushToFlask(float temp, float hum, float soundDb, int soundRaw,
   }
   http.end();
 }
-
-// ================================================================
-//  ThingWorx property update (only compiled if USE_THINGWORX true)
-// ================================================================
-#if USE_THINGWORX
-void updateThingWorxProperty(String propName, String value) {
-  if (WiFi.status() != WL_CONNECTED)
-    return;
-  HTTPClient http;
-  String url = String(TWX_SERVER) + "/Thingworx/Things/" + TWX_THING +
-               "/Properties/" + propName;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("appKey", TWX_APP_KEY);
-  http.addHeader("Accept", "application/json");
-  String body = "{\"" + propName + "\":" + value + "}";
-  int code = http.PUT(body);
-  Serial.printf("[TWX] %s → %d\n", propName.c_str(), code);
-  http.end();
-}
-#endif

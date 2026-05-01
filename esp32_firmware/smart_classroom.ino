@@ -33,12 +33,12 @@
 // ═══════════════════════════════════════
 
 // WiFi credentials — UPDATE THESE for your network
-const char* WIFI_SSID     = "GLA";       // <-- Change this
-const char* WIFI_PASSWORD = "GLACAMPUS";    // <-- Change this
+const char* WIFI_SSID     = "YOUR_WIFI_SSID";       // <-- Change this
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";    // <-- Change this
 
 // Flask server IP — UPDATE THIS to your laptop's IP
 // Find your IP: Open CMD → type "ipconfig" → look for IPv4 Address
-const char* SERVER_IP   = "[IP_ADDRESS]";           // <-- Change this
+const char* SERVER_IP   = "192.168.1.100";           // <-- Change this
 const int   SERVER_PORT = 5000;
 
 // Device identity
