@@ -25,7 +25,7 @@ from database import (
     update_thresholds
 )
 from ml_model import predict_engagement, load_models, get_engagement_insights, classify_engagement
-import thingworx_api
+# import thingworx_api
 
 # ═══ APP INITIALIZATION ═══
 
@@ -173,7 +173,7 @@ def receive_sensor_data():
         # PUSH TO THINGWORX CLOUD DATABASE
         # ---------------------------------------------------------
         # Execute push to ThingWorx in a separate thread using merged data
-        threading.Thread(target=thingworx_api.push_reading_to_thingworx, args=(merged,), daemon=True).start()
+        # threading.Thread(target=thingworx_api.push_reading_to_thingworx, args=(merged,), daemon=True).start()
 
         # Check alert conditions
         check_and_emit_alerts(merged, room)
@@ -301,7 +301,7 @@ def check_and_emit_alerts(data, room):
         socketio.emit('new_alert', alert)
         
         # Push alert to ThingWorx Service
-        threading.Thread(target=thingworx_api.push_alert_to_thingworx, args=(alert,), daemon=True).start()
+        # threading.Thread(target=thingworx_api.push_alert_to_thingworx, args=(alert,), daemon=True).start()
 
 
 # ═══ REST API ENDPOINTS ═══

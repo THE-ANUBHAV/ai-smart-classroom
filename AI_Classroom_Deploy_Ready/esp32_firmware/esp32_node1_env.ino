@@ -17,6 +17,7 @@
 #include <DHT.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 // ================================================================
 //  ★★★  CHANGE THESE THREE LINES BEFORE UPLOADING  ★★★
@@ -25,7 +26,7 @@
 #define WIFI_SSID "TP-Link_7AE6" // ← Your WiFi name
 #define WIFI_PASSWORD "36144044" // ← Your WiFi password
 #define FLASK_SERVER_URL                                                       \
-  "https://ai-smart-classroom.onrender.com/api/sensor-data"
+  "https://ai-smart-classroom-oy6n.onrender.com/api/sensor-data"
 // ↑ Paste your Render URL here
 //   OR use local IP while testing:
 //   "http://192.168.x.x:5000/api/sensor-data"
@@ -113,10 +114,13 @@ void pushToFlask(float temp, float hum, float soundDb, int soundRaw,
     return;
   }
 
+  WiFiClientSecure client;
+  client.setInsecure(); // Allow connection to Render without certificate management
+  
   HTTPClient http;
-  http.begin(FLASK_SERVER_URL);
+  http.begin(client, FLASK_SERVER_URL);
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(8000); // 8-second timeout for Render cold starts
+  http.setTimeout(15000); // 15-second timeout for Render cold starts
 
   StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;

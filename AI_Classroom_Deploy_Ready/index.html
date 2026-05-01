@@ -2505,38 +2505,48 @@
       function connectWebSocket() {
         disconnectSocket();
         if (!state.settings.iot.endpoint) {
-          state.settings.iot.lastMessage = "Add a WebSocket endpoint";
+          state.settings.iot.lastMessage = "Add a Socket.IO endpoint";
           persistSettings();
           renderView("settings");
           return;
         }
         try {
-          state.socket = new WebSocket(state.settings.iot.endpoint);
-          state.socket.onopen = () => {
+          // Use io() from Socket.IO client
+          state.socket = io(state.settings.iot.endpoint, {
+            transports: ['websocket', 'polling'],
+            reconnection: true
+          });
+
+          state.socket.on('connect', () => {
             state.settings.iot.connected = true;
-            state.settings.iot.lastMessage = "WebSocket connected";
+            state.settings.iot.lastMessage = "Socket.IO connected";
             persistSettings();
             stopRealtime(false);
             updateLiveBadge(true);
             renderView("settings");
-            toast("WebSocket connected", state.settings.iot.endpoint, "system");
-          };
-          state.socket.onmessage = (event) => parseDeviceMessage(event.data, "WebSocket");
-          state.socket.onerror = () => {
-            state.settings.iot.lastMessage = "WebSocket error";
+            toast("Socket connected", state.settings.iot.endpoint, "system");
+          });
+
+          state.socket.on('new_reading', (data) => {
+            parseDeviceMessage(data, "Socket.IO");
+          });
+
+          state.socket.on('connect_error', (error) => {
+            state.settings.iot.lastMessage = "Socket error: " + error.message;
             persistSettings();
             updateCurrentView();
-          };
-          state.socket.onclose = () => {
+          });
+
+          state.socket.on('disconnect', () => {
             state.settings.iot.connected = false;
-            state.settings.iot.lastMessage = "WebSocket closed";
+            state.settings.iot.lastMessage = "Socket disconnected";
             persistSettings();
             updateLiveBadge(false);
             updateCurrentView();
-          };
+          });
         } catch (error) {
           state.settings.iot.connected = false;
-          state.settings.iot.lastMessage = error && error.message ? error.message : "WebSocket connection failed";
+          state.settings.iot.lastMessage = error && error.message ? error.message : "Socket connection failed";
           persistSettings();
           renderView("settings");
         }
@@ -2544,7 +2554,7 @@
 
       function disconnectSocket() {
         if (state.socket) {
-          try { state.socket.close(); } catch (_) {}
+          try { state.socket.disconnect(); } catch (_) {}
         }
         state.socket = null;
       }

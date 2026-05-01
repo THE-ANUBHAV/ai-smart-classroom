@@ -56,11 +56,11 @@ Sign up at https://render.com (free tier works fine).
 
 ### Step 6: Verify Deployment
 Once deployed, your app URL will look like:  
-`https://ai-smart-classroom.onrender.com`
+`https://ai-smart-classroom-oy6n.onrender.com`
 
 Test it in your browser:
 ```
-https://ai-smart-classroom.onrender.com/api/health
+https://ai-smart-classroom-oy6n.onrender.com/api/health
 ```
 
 You should see:
@@ -91,7 +91,7 @@ Then go to **Tools → Board → Boards Manager** and install `esp32`.
 ```cpp
 #define WIFI_SSID       "TP-Link_7AE6"
 #define WIFI_PASSWORD   "36144044"
-#define FLASK_SERVER_URL "https://ai-smart-classroom.onrender.com/api/sensor-data"
+#define FLASK_SERVER_URL "https://ai-smart-classroom-oy6n.onrender.com/api/sensor-data"
 ```
 3. Replace the Render URL with your actual Render app URL.
 4. Connect your first ESP32 via USB.
@@ -109,7 +109,7 @@ Then go to **Tools → Board → Boards Manager** and install `esp32`.
 ```cpp
 #define WIFI_SSID      "TP-Link_7AE6"
 #define WIFI_PASSWORD  "36144044"
-#define SERVER_URL     "https://ai-smart-classroom.onrender.com/api/sensor-data"
+#define SERVER_URL     "https://ai-smart-classroom-oy6n.onrender.com/api/sensor-data"
 ```
 3. Replace the Render URL with your actual Render app URL.
 4. Connect your second ESP32 and upload the same way.
@@ -126,7 +126,7 @@ Then go to **Tools → Board → Boards Manager** and install `esp32`.
 ### Step 10: Open the Live Dashboard
 Go to your Render URL in a browser:
 ```
-https://ai-smart-classroom.onrender.com
+https://ai-smart-classroom-oy6n.onrender.com
 ```
 Click **▶ INITIATE NEURAL LINK** to boot the A.E.G.I.S. HUD.  
 In Settings → IoT Device Connection, set **Input Mode** to `WEBSOCKET` and click **🔌 Connect**.
