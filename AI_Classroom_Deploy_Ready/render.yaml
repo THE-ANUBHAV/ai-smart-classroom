@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ai-smart-classroom
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --threads 100 --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Optional: ThingWorx credentials (keep these secret — set on Render dashboard)
+      - key: THINGWORX_URL
+        sync: false
+      - key: THINGWORX_APP_KEY
+        sync: false
+      - key: THINGWORX_THING_NAME
+        sync: false

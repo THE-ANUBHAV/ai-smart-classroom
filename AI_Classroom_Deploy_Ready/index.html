@@ -1,0 +1,4345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A.E.G.I.S. Core | Tactical AI HUD</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.0/countUp.umd.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020810;
+      --bg-soft: rgba(0, 212, 255, 0.03);
+      --surface: rgba(2, 8, 16, 0.72);
+      --surface-strong: rgba(2, 8, 16, 0.92);
+      --surface-muted: rgba(0, 212, 255, 0.045);
+      --border: rgba(0, 212, 255, 0.15);
+      --border-strong: rgba(0, 212, 255, 0.42);
+      --text: #a0d8ef;
+      --text-muted: rgba(160, 216, 239, 0.6);
+      --blue: #00d4ff;
+      --teal: #00d4ff;
+      --amber: #ff6a00;
+      --red: #ff1744;
+      --green: #00ff55;
+      --violet: #0066ff;
+      --shadow: 0 0 20px rgba(0, 212, 255, 0.15);
+      --radius: 4px; /* More tactical, less round */
+      --topbar-h: 60px;
+      --sidebar-w: 240px;
+      color-scheme: dark;
+    }
+
+    body.light {
+      /* Disable light mode for tactical HUD */
+    }
+
+    * { box-sizing: border-box; cursor: crosshair; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      overflow-x: hidden;
+      position: relative;
+    }
+    
+    h1, h2, h3, h4, h5, h6, .brand__title, .kpi__value, .gauge__value {
+      font-family: 'Orbitron', sans-serif;
+      color: #ffffff;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Scanlines */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 900;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,212,255,0.015) 2px, rgba(0,212,255,0.015) 4px);
+    }
+    
+    /* Dot Grid Drifting */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: -50% 0 0 0;
+      width: 100vw;
+      height: 200vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.15;
+      background-image: radial-gradient(var(--blue) 1px, transparent 1px);
+      background-size: 20px 20px;
+      animation: driftGrid 60s linear infinite;
+    }
+
+    @keyframes driftGrid {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(50%); }
+    }
+
+    /* HUD Corner Accents on Cards */
+    .card::after, .card::before {
+      content: ''; position: absolute; width: 10px; height: 10px; border: 2px solid var(--blue); pointer-events: none;
+    }
+    .card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+    .card::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .loading {
+      position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 10000; background: #000; transition: opacity 0.5s ease;
+    }
+    
+    .boot-scanline {
+      position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--blue);
+      box-shadow: 0 0 10px var(--blue); opacity: 0;
+    }
+
+    .boot-arc {
+      position: relative; width: 200px; height: 200px; display: none; filter: drop-shadow(0 0 15px var(--blue));
+    }
+    
+    .boot-arc svg { width: 100%; height: 100%; animation: spin 10s linear infinite; }
+    .boot-arc svg circle { fill: none; stroke: var(--blue); stroke-width: 2; stroke-dasharray: 20, 10; }
+    .boot-arc::after {
+      content: ''; position: absolute; inset: 20px; border: 4px solid var(--blue); border-radius: 50%;
+      border-top-color: transparent; border-bottom-color: transparent; animation: spin 3s linear infinite reverse;
+    }
+
+    .boot-text { margin-top: 30px; font-size: 1rem; color: var(--blue); text-align: center; display: none; }
+    .boot-terminal { margin-top: 15px; font-size: 0.8rem; color: var(--text-muted); text-align: left; width: 400px; height: 100px; overflow: hidden; display: none; }
+    
+    .boot-wipe {
+      position: absolute; top: 50%; left: 50%; width: 0; height: 2px; background: var(--blue);
+      transform: translate(-50%, -50%); opacity: 0; z-index: 10001;
+    }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    @keyframes scanDown { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 1; } }
+    @keyframes wipeOpen { 0% { width: 0; opacity: 1; } 50% { width: 100%; opacity: 1; height: 2px; } 100% { width: 100%; height: 100vh; opacity: 0; } }
+
+    /* HUD Overlays */
+    .hud-target { position: fixed; top: 20px; left: calc(var(--sidebar-w) + 20px); width: 60px; height: 60px; pointer-events: none; z-index: 99; opacity: 0.6; animation: spin 30s linear infinite; }
+    .hud-target::before { content: ''; position: absolute; top: 50%; left: -10px; right: -10px; height: 1px; background: var(--blue); }
+    .hud-target::after { content: ''; position: absolute; left: 50%; top: -10px; bottom: -10px; width: 1px; background: var(--blue); }
+
+    .hud-sys-status { position: fixed; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 99; font-size: 0.7rem; pointer-events: none; }
+    .hud-sys-status div { display: flex; align-items: center; gap: 4px; }
+    .hud-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .hud-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); animation: blink 1s infinite; }
+    
+    .hud-radar { position: fixed; bottom: 40px; right: 20px; width: 80px; height: 80px; border-radius: 50%; border: 1px solid var(--blue); z-index: 99; pointer-events: none; opacity: 0.4; }
+    .hud-radar::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 70%, rgba(0,212,255,0.4) 100%); animation: spin 4s linear infinite; }
+
+    .hud-statusbar { position: fixed; bottom: 0; left: var(--sidebar-w); width: calc(100% - var(--sidebar-w)); height: 24px; background: var(--bg); border-top: 1px solid var(--border); z-index: 99; display: flex; align-items: center; padding: 0 20px; font-size: 0.7rem; gap: 20px; color: var(--blue); pointer-events: none; }
+
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      opacity: 0; /* Hidden initially for boot sequence */
+      transform: scale(1.05); /* Spring animation target */
+      transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .app.booted { opacity: 1; transform: scale(1); }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      border-right: 1px solid var(--border);
+      background: rgba(10, 13, 19, 0.68);
+      backdrop-filter: blur(24px);
+      z-index: 40;
+    }
+
+    body.light .sidebar {
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 10px;
+      min-width: 0;
+    }
+
+    .brand__icon {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--blue), var(--teal));
+      color: #fff;
+      box-shadow: 0 12px 30px rgba(79, 142, 247, 0.35);
+    }
+
+    .brand__text {
+      min-width: 0;
+    }
+
+    .brand__title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .brand__subtitle {
+      margin: 3px 0 0;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+    }
+
+    .nav {
+      display: grid;
+      gap: 7px;
+    }
+
+    .nav__item {
+      position: relative;
+      width: 100%;
+      min-height: 48px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-muted);
+      text-align: left;
+      transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+    }
+
+    .nav__item:hover {
+      transform: translateX(3px);
+      color: var(--text);
+      background: var(--surface-muted);
+    }
+
+    .nav__item.active {
+      color: #fff;
+      background: linear-gradient(90deg, rgba(79, 142, 247, 0.28), rgba(79, 142, 247, 0.08));
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    body.light .nav__item.active {
+      color: #143154;
+    }
+
+    .nav__icon {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      font-size: 1.15rem;
+    }
+
+    .sidebar__footer {
+      margin-top: auto;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .shell {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      height: var(--topbar-h);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15, 17, 23, 0.74);
+      backdrop-filter: blur(22px);
+      z-index: 35;
+    }
+
+    body.light .topbar {
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .topbar__left {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .topbar__title {
+      min-width: 0;
+    }
+
+    .topbar__title h1 {
+      margin: 0;
+      font-size: 1.08rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .topbar__title p {
+      margin: 2px 0 0;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+    }
+
+    .topbar__actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mobile-menu {
+      display: none;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      color: var(--text);
+      background: var(--surface-muted);
+    }
+
+    .live-badge {
+      position: relative;
+      min-width: 82px;
+      height: 32px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border-radius: 999px;
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.76rem;
+      letter-spacing: 0;
+      background: linear-gradient(90deg, var(--blue), var(--teal), var(--blue));
+      background-size: 220% 100%;
+      box-shadow: 0 0 24px rgba(0, 212, 170, 0.27);
+      animation: gradientMove 3.6s linear infinite;
+    }
+
+    .live-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+      animation: livePulse 1.4s ease infinite;
+    }
+
+    .live-badge.paused {
+      background: rgba(148, 163, 184, 0.28);
+      box-shadow: none;
+      animation: none;
+    }
+
+    .select,
+    .input,
+    .textarea {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .select,
+    .input {
+      padding: 0 12px;
+    }
+
+    .textarea {
+      min-height: 90px;
+      padding: 10px 12px;
+      resize: vertical;
+    }
+
+    .select:focus,
+    .input:focus,
+    .textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(79, 142, 247, 0.16);
+    }
+
+    .topbar .select {
+      width: 150px;
+    }
+
+    .clock {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      min-width: 104px;
+      color: var(--text);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .clock span {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+    }
+
+    .icon-button {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--text);
+      background: var(--surface-muted);
+      transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .icon-button:hover {
+      transform: translateY(-2px);
+      background: rgba(79, 142, 247, 0.15);
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #28364e, #1a2638);
+      color: #fff;
+      font-weight: 800;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .badge-dot {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--red);
+      font-size: 0.68rem;
+      font-weight: 800;
+      border: 2px solid var(--bg);
+    }
+
+    .view {
+      min-height: calc(100vh - var(--topbar-h));
+      padding: 24px;
+      animation: fadeIn 0.22s ease both;
+    }
+
+    .view.fade-out {
+      animation: fadeOut 0.15s ease both;
+    }
+
+    .view__header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .view__title {
+      margin: 0;
+      font-size: clamp(1.3rem, 2vw, 2rem);
+      letter-spacing: 0;
+    }
+
+    .view__subtitle {
+      margin: 6px 0 0;
+      color: var(--text-muted);
+      max-width: 760px;
+      line-height: 1.5;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-muted);
+      background: var(--surface-muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .status-pill strong {
+      color: var(--text);
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid--kpi {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .grid--3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid--2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid--4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+      animation: slideUp 0.34s ease both;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(135deg, rgba(79, 142, 247, 0.1), transparent 34%, rgba(0, 212, 170, 0.055));
+      opacity: 0;
+      transition: opacity 0.22s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-strong);
+      box-shadow: 0 20px 58px rgba(0, 0, 0, 0.42);
+    }
+
+    .card:hover::before {
+      opacity: 1;
+    }
+
+    body.light .card:hover {
+      box-shadow: 0 20px 58px rgba(59, 78, 108, 0.22);
+    }
+
+    .card__body {
+      position: relative;
+      z-index: 1;
+      padding: 18px;
+    }
+
+    .card__header {
+      position: relative;
+      z-index: 1;
+      padding: 18px 18px 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card__title {
+      margin: 0;
+      font-size: 0.96rem;
+      letter-spacing: 0;
+    }
+
+    .card__subtitle {
+      margin: 5px 0 0;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .kpi {
+      min-height: 138px;
+    }
+
+    .kpi__top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .kpi__icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(79, 142, 247, 0.16);
+      color: var(--blue);
+      font-size: 1.2rem;
+    }
+
+    .kpi__label {
+      color: var(--text-muted);
+      font-size: 0.83rem;
+      font-weight: 700;
+    }
+
+    .kpi__value {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-weight: 900;
+      font-size: clamp(1.75rem, 3vw, 2.45rem);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .kpi__unit {
+      color: var(--text-muted);
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+
+    .kpi__bottom {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+    }
+
+    .delta {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .delta.up {
+      color: var(--green);
+    }
+
+    .delta.down {
+      color: var(--red);
+    }
+
+    .delta.flat {
+      color: var(--text-muted);
+    }
+
+    .chart-card {
+      min-height: 340px;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 260px;
+      min-height: 220px;
+    }
+
+    .chart-wrap--small {
+      height: 220px;
+    }
+
+    .chart-fallback {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .dashboard-bottom {
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr 1fr;
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .gauge {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      padding-top: 8px;
+    }
+
+    .gauge__svg {
+      width: min(260px, 100%);
+      overflow: visible;
+      transform: rotate(-90deg);
+    }
+
+    .gauge__track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.1);
+      stroke-width: 16;
+    }
+
+    body.light .gauge__track {
+      stroke: rgba(17, 24, 39, 0.1);
+    }
+
+    .gauge__fill {
+      fill: none;
+      stroke-width: 16;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.75s ease, stroke 0.35s ease;
+      filter: drop-shadow(0 0 10px rgba(79, 142, 247, 0.55));
+    }
+
+    .gauge__center {
+      position: absolute;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .gauge__value {
+      font-size: 3.2rem;
+      font-weight: 900;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .gauge__label {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .gauge__frame {
+      position: relative;
+      width: min(260px, 100%);
+      aspect-ratio: 1;
+    }
+
+    .alerts-list {
+      display: grid;
+      gap: 10px;
+      max-height: 360px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .alert-item {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      animation: slideUp 0.22s ease both;
+    }
+
+    .alert-item.critical {
+      border-color: rgba(239, 68, 68, 0.48);
+      animation: slideUp 0.22s ease both, criticalPulse 1.7s ease-in-out infinite;
+    }
+
+    .alert-item__icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(79, 142, 247, 0.14);
+    }
+
+    .alert-item__title {
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+
+    .alert-item__meta {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+    }
+
+    .badge {
+      min-height: 24px;
+      padding: 0 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      color: #fff;
+      font-size: 0.68rem;
+      font-weight: 900;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .badge.high,
+    .badge.optimal,
+    .badge.info {
+      background: rgba(34, 197, 94, 0.18);
+      color: #7df0a3;
+      border: 1px solid rgba(34, 197, 94, 0.34);
+    }
+
+    .badge.medium,
+    .badge.warning {
+      background: rgba(245, 158, 11, 0.17);
+      color: #ffd079;
+      border: 1px solid rgba(245, 158, 11, 0.36);
+    }
+
+    .badge.low,
+    .badge.critical {
+      background: rgba(239, 68, 68, 0.17);
+      color: #ff9b9b;
+      border: 1px solid rgba(239, 68, 68, 0.36);
+    }
+
+    .session-info {
+      display: grid;
+      gap: 12px;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .info-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .info-row span {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+
+    .info-row strong {
+      text-align: right;
+      font-size: 0.9rem;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .segmented {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .segmented__btn {
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      background: transparent;
+      transition: color 0.18s ease, background 0.18s ease;
+    }
+
+    .segmented__btn.active {
+      color: #fff;
+      background: var(--blue);
+    }
+
+    body.light .segmented__btn.active {
+      color: #fff;
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .stat {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .stat__label {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    .stat__value {
+      margin-top: 8px;
+      font-size: 1.55rem;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .heatmap {
+      display: grid;
+      grid-template-columns: 72px repeat(5, 1fr);
+      gap: 8px;
+      min-width: 520px;
+    }
+
+    .heatmap-wrap {
+      overflow-x: auto;
+    }
+
+    .heatmap__cell {
+      min-height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.78rem;
+      font-weight: 800;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .heatmap__label {
+      min-height: 48px;
+      display: grid;
+      place-items: center start;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    .reports {
+      display: grid;
+      gap: 14px;
+    }
+
+    .report-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+
+    .report-card__summary {
+      width: 100%;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr auto;
+      gap: 14px;
+      align-items: center;
+      color: var(--text);
+      background: transparent;
+      text-align: left;
+    }
+
+    .report-card__summary:hover {
+      background: var(--surface-muted);
+    }
+
+    .report-card__details {
+      padding: 0 16px 16px;
+      border-top: 1px solid var(--border);
+      animation: fadeIn 0.2s ease both;
+    }
+
+    .key-moments {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .key-moment {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .insight-list {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0 0;
+    }
+
+    .insight {
+      padding: 12px;
+      border-left: 3px solid var(--blue);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      line-height: 1.45;
+    }
+
+    .env-gauge {
+      min-height: 230px;
+      display: grid;
+      justify-items: center;
+      align-items: center;
+      gap: 8px;
+      text-align: center;
+    }
+
+    .semi-gauge {
+      width: min(220px, 100%);
+      overflow: visible;
+    }
+
+    .semi-gauge__track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.12);
+      stroke-width: 14;
+      stroke-linecap: round;
+    }
+
+    body.light .semi-gauge__track {
+      stroke: rgba(17, 24, 39, 0.12);
+    }
+
+    .semi-gauge__zone {
+      fill: none;
+      stroke-width: 14;
+      stroke-linecap: round;
+    }
+
+    .semi-gauge__needle {
+      transform-origin: 110px 110px;
+      transition: transform 0.7s ease;
+      filter: drop-shadow(0 0 6px rgba(79, 142, 247, 0.45));
+    }
+
+    .env-gauge__value {
+      font-size: 1.75rem;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .env-gauge__label {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .status-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sensor-status {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .sensor-status__icon {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(79, 142, 247, 0.14);
+    }
+
+    .sensor-status__name {
+      font-weight: 800;
+    }
+
+    .sensor-status__rec {
+      margin-top: 4px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+
+    .alerts-page {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+      gap: 16px;
+    }
+
+    .alert-feed {
+      display: grid;
+      gap: 12px;
+      max-height: 680px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .alert-feed .alert-item {
+      grid-template-columns: auto 1fr auto;
+    }
+
+    .ai-panel {
+      position: sticky;
+      top: calc(var(--topbar-h) + 24px);
+      align-self: start;
+    }
+
+    .rec-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .rec {
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      line-height: 1.45;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field label {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .field__row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .range-row {
+      display: grid;
+      grid-template-columns: 1fr 72px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+
+    .switch {
+      position: relative;
+      width: 50px;
+      height: 28px;
+      flex: 0 0 auto;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .switch span {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.32);
+      transition: background 0.2s ease;
+    }
+
+    .switch span::before {
+      content: "";
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      left: 3px;
+      top: 3px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s ease;
+    }
+
+    .switch input:checked + span {
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+    }
+
+    .switch input:checked + span::before {
+      transform: translateX(22px);
+    }
+
+    .classroom-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .classroom-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      min-height: 40px;
+      padding: 0 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 8px;
+      color: var(--text);
+      background: var(--surface-muted);
+      border: 1px solid var(--border);
+      transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+      background: rgba(79, 142, 247, 0.12);
+    }
+
+    .btn--primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), #326ee0);
+      border-color: rgba(79, 142, 247, 0.45);
+      box-shadow: 0 12px 28px rgba(79, 142, 247, 0.22);
+    }
+
+    .btn--success {
+      color: #06261f;
+      background: linear-gradient(135deg, var(--teal), #67e8c1);
+      border-color: rgba(0, 212, 170, 0.45);
+    }
+
+    .btn--danger {
+      color: #fff;
+      background: linear-gradient(135deg, var(--red), #b91c1c);
+      border-color: rgba(239, 68, 68, 0.45);
+    }
+
+    .btn--ghost {
+      background: transparent;
+    }
+
+    .empty-state {
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      text-align: center;
+      color: var(--text-muted);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+    }
+
+    .empty-state__icon {
+      font-size: 2.4rem;
+      margin-bottom: 10px;
+    }
+
+    .toast-host {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 1200;
+      display: grid;
+      gap: 10px;
+      width: min(380px, calc(100vw - 36px));
+    }
+
+    .toast {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(18, 23, 32, 0.94);
+      box-shadow: var(--shadow);
+      color: #fff;
+      backdrop-filter: blur(20px);
+      animation: toastIn 0.25s ease both;
+    }
+
+    .toast__icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(79, 142, 247, 0.16);
+    }
+
+    .toast__title {
+      margin: 0;
+      font-size: 0.9rem;
+    }
+
+    .toast__msg {
+      margin: 3px 0 0;
+      color: #b9c5d8;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.58);
+      backdrop-filter: blur(8px);
+      animation: fadeIn 0.18s ease both;
+    }
+
+    .modal {
+      width: min(560px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-strong);
+      box-shadow: var(--shadow);
+      animation: slideUp 0.2s ease both;
+    }
+
+    .modal__header,
+    .modal__body,
+    .modal__footer {
+      padding: 18px;
+    }
+
+    .modal__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal__title {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .modal__body {
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .modal__footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    .bottom-nav {
+      display: none;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 45;
+      grid-template-columns: repeat(6, 1fr);
+      border-top: 1px solid var(--border);
+      background: rgba(10, 13, 19, 0.86);
+      backdrop-filter: blur(20px);
+    }
+
+    body.light .bottom-nav {
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .bottom-nav__item {
+      min-height: 62px;
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      background: transparent;
+      font-size: 1.18rem;
+    }
+
+    .bottom-nav__item.active {
+      color: var(--blue);
+    }
+
+    .iot-status {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-muted);
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.84em;
+    }
+
+    @keyframes loadingBar {
+      0% { width: 0; }
+      70% { width: 82%; }
+      100% { width: 100%; }
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 28px rgba(79, 142, 247, 0.45); }
+      50% { transform: scale(1.06); box-shadow: 0 0 48px rgba(0, 212, 170, 0.48); }
+    }
+
+    @keyframes livePulse {
+      0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.66); }
+      70% { box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+    }
+
+    @keyframes gradientMove {
+      0% { background-position: 0 50%; }
+      100% { background-position: 220% 50%; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes criticalPulse {
+      0%, 100% { box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+      50% { box-shadow: 0 0 24px rgba(239, 68, 68, 0.16); }
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(12px) translateX(12px); }
+      to { opacity: 1; transform: translateY(0) translateX(0); }
+    }
+
+    @media (max-width: 1180px) {
+      :root {
+        --sidebar-w: 88px;
+      }
+
+      .sidebar {
+        padding: 18px 10px;
+      }
+
+      .brand {
+        justify-content: center;
+      }
+
+      .brand__text,
+      .nav__label,
+      .sidebar__footer {
+        display: none;
+      }
+
+      .nav__item {
+        justify-content: center;
+        padding: 0;
+      }
+
+      .grid--kpi {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid--3,
+      .dashboard-bottom,
+      .alerts-page {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .dashboard-bottom .card:first-child {
+        grid-column: span 2;
+      }
+
+      .grid--4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stat-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 780px) {
+      :root {
+        --sidebar-w: 0px;
+        --topbar-h: auto;
+      }
+
+      .app {
+        display: block;
+        padding-bottom: 72px;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 282px;
+        height: auto;
+        transform: translateX(-105%);
+        transition: transform 0.24s ease;
+        z-index: 80;
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .brand {
+        justify-content: flex-start;
+      }
+
+      .brand__text,
+      .nav__label,
+      .sidebar__footer {
+        display: block;
+      }
+
+      .nav__item {
+        justify-content: flex-start;
+        padding: 0 12px;
+      }
+
+      .mobile-menu {
+        display: grid;
+      }
+
+      .topbar {
+        position: sticky;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 12px;
+        gap: 10px;
+      }
+
+      .topbar__left {
+        flex: 1 1 100%;
+      }
+
+      .topbar__actions {
+        width: 100%;
+        margin-left: 0;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .topbar .select {
+        width: min(42vw, 180px);
+      }
+
+      .clock {
+        min-width: auto;
+      }
+
+      .avatar {
+        display: none;
+      }
+
+      .view {
+        padding: 16px 12px;
+      }
+
+      .view__header {
+        display: grid;
+        align-items: start;
+      }
+
+      .grid--kpi,
+      .grid--3,
+      .grid--2,
+      .grid--4,
+      .dashboard-bottom,
+      .alerts-page,
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-bottom .card:first-child {
+        grid-column: auto;
+      }
+
+      .report-card__summary {
+        grid-template-columns: 1fr;
+      }
+
+      .stat-row {
+        grid-template-columns: 1fr;
+      }
+
+      .bottom-nav {
+        display: grid;
+      }
+
+      .ai-panel {
+        position: static;
+      }
+
+      .modal__footer {
+        flex-direction: column-reverse;
+      }
+
+      .modal__footer .btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- STAGE 1 & 2: JARVIS BOOT SEQUENCE -->
+  <div class="loading" id="loadingScreen">
+    <div id="initOverlay" style="text-align:center;">
+      <h2 style="color:var(--blue);margin-bottom:2rem;letter-spacing:3px">A.E.G.I.S. CORE OFFLINE</h2>
+      <button class="btn" style="font-size:1.2rem; padding:1rem 2.5rem; box-shadow:0 0 25px rgba(0,212,255,0.4); text-transform:uppercase; letter-spacing:2px; border:1px solid var(--blue); background:rgba(0,212,255,0.1); color:var(--text)" onclick="startAegisBoot()">▶ INITIATE NEURAL LINK</button>
+    </div>
+    <div id="bootContainer" style="display:none; flex-direction:column; align-items:center">
+      <div class="boot-scanline" id="bootScanline"></div>
+      <div class="boot-arc" id="bootArc">
+        <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45"/></svg>
+      </div>
+      <div class="boot-text" id="bootText"></div>
+      <div class="boot-terminal" id="bootTerminal"></div>
+      <div class="boot-wipe" id="bootWipe"></div>
+    </div>
+  </div>
+
+  <div class="toast-host" id="toastHost"></div>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal__header">
+        <h2 class="modal__title" id="modalTitle"></h2>
+        <button class="icon-button" data-modal-close title="Close">×</button>
+      </div>
+      <div class="modal__body" id="modalBody"></div>
+      <div class="modal__footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <div class="app hidden" id="app">
+    
+    <!-- STAGE 9: HUD OVERLAYS -->
+    <div class="hud-target"></div>
+    <div class="hud-sys-status">
+      <div><div class="hud-dot" id="sysSensor"></div> SENSOR</div>
+      <div><div class="hud-dot" id="sysCloud"></div> CLOUD</div>
+      <div><div class="hud-dot" id="sysML"></div> ML</div>
+    </div>
+    <div class="hud-radar"></div>
+    <div class="hud-statusbar">
+      <span>| LIVE</span>
+      <span>| Room A101</span>
+      <span>| <span id="statusReadings">0</span> readings</span>
+      <span>| Uptime: <span id="statusUptime">00:00:00</span></span>
+      <span>| ML Model: v2.3</span>
+    </div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand__icon">🌐</div>
+        <div class="brand__text">
+          <p class="brand__title">A.E.G.I.S. Core</p>
+          <p class="brand__subtitle">Tactical AI Subsystem</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav__item active" data-view="live"><span class="nav__icon">🏠</span><span class="nav__label">Live Dashboard</span></button>
+        <button class="nav__item" data-view="historical"><span class="nav__icon">📊</span><span class="nav__label">Historical Analytics</span></button>
+        <button class="nav__item" data-view="reports"><span class="nav__icon">📋</span><span class="nav__label">Engagement Reports</span></button>
+        <button class="nav__item" data-view="environment"><span class="nav__icon">🌡️</span><span class="nav__label">Environment Monitor</span></button>
+        <button class="nav__item" data-view="alerts"><span class="nav__icon">🔔</span><span class="nav__label">Alerts & Recommendations</span></button>
+        <button class="nav__item" data-view="settings"><span class="nav__icon">⚙️</span><span class="nav__label">Settings</span></button>
+      </nav>
+      <div class="sidebar__footer">
+        <strong>Team-8 | GLA University</strong><br>
+        B.Tech CSE AI-ML Mini Project
+      </div>
+    </aside>
+
+    <section class="shell">
+      <header class="topbar">
+        <div class="topbar__left">
+          <button class="mobile-menu" id="mobileMenu" title="Menu">☰</button>
+          <span class="live-badge" id="liveBadge">LIVE</span>
+          <div class="topbar__title">
+            <h1 id="topbarTitle">Live Dashboard</h1>
+            <p id="topbarSubtitle">Real-time AI engagement and environment telemetry</p>
+          </div>
+        </div>
+        <div class="topbar__actions">
+          <select class="select" id="classroomSelect" title="Classroom selector"></select>
+          <div class="clock"><span>Clock</span><strong id="clockText">--:--:--</strong></div>
+          <div class="clock"><span>Session</span><strong id="sessionTimer">00:00:00</strong></div>
+          <button class="icon-button" data-view="alerts" title="Notifications">🔔<span class="badge-dot hidden" id="unreadBadge">0</span></button>
+        </div>
+      </header>
+      <main class="view" id="view"></main>
+    </section>
+
+    <nav class="bottom-nav" aria-label="Mobile navigation">
+      <button class="bottom-nav__item active" data-view="live" title="Live Dashboard">🏠</button>
+      <button class="bottom-nav__item" data-view="historical" title="Historical Analytics">📊</button>
+      <button class="bottom-nav__item" data-view="reports" title="Engagement Reports">📋</button>
+      <button class="bottom-nav__item" data-view="environment" title="Environment Monitor">🌡️</button>
+      <button class="bottom-nav__item" data-view="alerts" title="Alerts">🔔</button>
+      <button class="bottom-nav__item" data-view="settings" title="Settings">⚙️</button>
+    </nav>
+  </div>
+
+  <script>
+    // ═══ STAGE 3: JARVIS SOUND ENGINE ═══
+    const AEGIS_AUDIO = {
+      ctx: null,
+      enabled: false,
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+        this.enabled = true;
+      },
+      playTone(freq, type, duration, vol) {
+        if (!this.enabled || !this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + duration);
+      },
+      boot() {
+        if(!this.enabled) return;
+        this.playTone(880, 'sine', 0.1, 0.3);
+        setTimeout(() => this.playTone(1760, 'sine', 0.1, 0.3), 150);
+        setTimeout(() => this.playTone(55, 'sawtooth', 1.5, 0.5), 800); // Thud
+      },
+      dataReceived() { this.playTone(1200, 'sine', 0.05, 0.1); },
+      alertWarning() { this.playTone(400, 'square', 0.2, 0.2); setTimeout(() => this.playTone(300, 'square', 0.3, 0.2), 200); },
+      alertCritical() { this.playTone(900, 'sawtooth', 0.1, 0.3); setTimeout(() => this.playTone(900, 'sawtooth', 0.4, 0.3), 150); },
+      engagementHigh() { 
+        this.playTone(600, 'sine', 0.4, 0.2); setTimeout(() => this.playTone(800, 'sine', 0.6, 0.2), 200); 
+        this.speak("Classroom engagement is highly optimal.");
+      },
+      engagementLow() { this.playTone(300, 'sawtooth', 0.5, 0.3); setTimeout(() => this.playTone(200, 'sawtooth', 0.8, 0.3), 300); },
+      click() { this.playTone(2000, 'square', 0.02, 0.05); },
+      speak(text) {
+        if (!this.enabled || !window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const msg = new SpeechSynthesisUtterance(text);
+        const voices = window.speechSynthesis.getVoices();
+        const jarvisVoice = voices.find(v => (v.name.includes('UK') || v.name.includes('Great Britain')) && v.name.includes('Male')) 
+                         || voices.find(v => v.lang === 'en-GB') 
+                         || voices[0];
+        if (jarvisVoice) msg.voice = jarvisVoice;
+        msg.pitch = 0.8; // Lower pitch for AI feel
+        msg.rate = 1.0;
+        msg.volume = 1.0; // Max volume as requested
+        window.speechSynthesis.speak(msg);
+      }
+    };
+
+    window.startAegisBoot = function() {
+      AEGIS_AUDIO.init();
+      AEGIS_AUDIO.boot();
+      document.getElementById('initOverlay').style.display = 'none';
+      document.getElementById('bootContainer').style.display = 'flex';
+      
+      const bootText = document.getElementById('bootText');
+      const bootTerminal = document.getElementById('bootTerminal');
+      
+      setTimeout(() => { document.getElementById('bootScanline').style.animation = 'scanDown 2s ease-in-out forwards'; }, 100);
+      setTimeout(() => { document.getElementById('bootArc').style.display = 'block'; }, 800);
+      
+      const msg = ["A.E.G.I.S. CORE v1.0", "GLA UNIVERSITY...", "INITIALIZING NEURAL ANALYTICS ENGINE..."];
+      setTimeout(() => {
+        bootText.style.display = 'block';
+        let step = 0;
+        let intv = setInterval(() => {
+          if (step >= msg.length) { clearInterval(intv); return; }
+          bootText.innerText = msg[step];
+          step++;
+        }, 800);
+      }, 1500);
+
+      setTimeout(() => {
+        bootTerminal.style.display = 'block';
+        let termLines = 0;
+        let tIntv = setInterval(() => {
+          bootTerminal.innerHTML += `> Load module 0x${Math.floor(Math.random()*10000).toString(16)}... OK<br>`;
+          bootTerminal.scrollTop = bootTerminal.scrollHeight;
+          termLines++;
+          if(termLines > 10) clearInterval(tIntv);
+        }, 100);
+      }, 3500);
+
+      setTimeout(() => {
+        document.getElementById('bootWipe').style.animation = 'wipeOpen 0.8s cubic-bezier(0.19, 1, 0.22, 1) forwards';
+        setTimeout(() => {
+          document.getElementById('loadingScreen').style.display = 'none';
+          document.getElementById('app').classList.remove('hidden');
+          setTimeout(() => document.getElementById('app').classList.add('booted'), 50);
+          window.initializeDashboardCore();
+          AEGIS_AUDIO.speak("Welcome. A E G I S tactical systems are fully initialized.");
+        }, 400);
+      }, 5500);
+    };
+
+    // Make socket globally accessible
+    const socket = io();
+
+    (() => {
+      "use strict";
+
+
+      // ═══ DATA STORAGE ═══
+      const STORAGE_KEYS = {
+        readings: "smartroom_readings_v1",
+        alerts: "smartroom_alerts_v1",
+        sessions: "smartroom_sessions_v1",
+        settings: "smartroom_settings_v1"
+      };
+
+      const DEFAULT_SETTINGS = {
+        selectedClassroomId: "a101",
+        theme: "dark",
+        soundNotifications: false,
+        refreshInterval: 3000,
+        simulationSpeed: "normal",
+        sensors: { temperature: true, humidity: true, motion: true, sound: true, air: true },
+        thresholds: {
+          temperatureWarning: 28,
+          temperatureCritical: 31,
+          humidityWarning: 70,
+          humidityCritical: 82,
+          engagementWarning: 50,
+          engagementCritical: 40,
+          soundWarning: 85,
+          soundCritical: 92,
+          motionInfo: 20
+        },
+        classrooms: [
+          { id: "a101", name: "Room A101", roomNumber: "A101", capacity: 72, subject: "Artificial Intelligence", faculty: "Dr. R. Sharma" },
+          { id: "b205", name: "Room B205", roomNumber: "B205", capacity: 64, subject: "IoT Systems", faculty: "Prof. Neha Gupta" },
+          { id: "c310", name: "Room C310", roomNumber: "C310", capacity: 58, subject: "Machine Learning", faculty: "Dr. Kavita Verma" }
+        ],
+        iot: {
+          mode: "simulator",
+          endpoint: "",
+          thingName: "SmartClassroomThing",
+          baudRate: 115200,
+          connected: false,
+          lastMessage: "Simulator is active"
+        }
+      };
+
+      const state = {
+        settings: mergeSettings(DEFAULT_SETTINGS, safeGet(STORAGE_KEYS.settings, {})),
+        readings: safeGet(STORAGE_KEYS.readings, []),
+        alerts: safeGet(STORAGE_KEYS.alerts, []),
+        sessions: safeGet(STORAGE_KEYS.sessions, []),
+        charts: {},
+        currentView: "live",
+        sessionStart: Date.now(),
+        previousReading: null,
+        currentReading: null,
+        simulatorTimer: null,
+        clockTimer: null,
+        aiTipTimer: null,
+        httpTimer: null,
+        chartReady: typeof Chart !== "undefined",
+        phaseOffset: Math.floor(Math.random() * 3),
+        sensorModel: { temperature: 23.2, humidity: 55, sound_level: 58, eventTicks: 0, forcedEvent: null },
+        lowEngagementRun: 0,
+        lowMotionRun: 0,
+        cooldowns: {},
+        expandedSessionId: null,
+        analyticsRange: "7",
+        editingClassroomId: null,
+        serial: { port: null, reader: null, keepReading: false },
+        socket: null,
+        lastUpdatedAt: null,
+        firstMetricPaint: true,
+        seeded: false
+      };
+
+      function safeGet(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch (_) {
+          return fallback;
+        }
+      }
+
+      function safeSet(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function safeRemove(key) {
+        try {
+          localStorage.removeItem(key);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function mergeSettings(base, saved) {
+        const merged = structuredCloneSafe(base);
+        Object.assign(merged, saved || {});
+        merged.thresholds = Object.assign({}, base.thresholds, saved && saved.thresholds);
+        merged.sensors = Object.assign({}, base.sensors, saved && saved.sensors);
+        merged.iot = Object.assign({}, base.iot, saved && saved.iot, { connected: false });
+        merged.classrooms = Array.isArray(saved && saved.classrooms) && saved.classrooms.length ? saved.classrooms : base.classrooms;
+        return merged;
+      }
+
+      function structuredCloneSafe(value) {
+        try {
+          return structuredClone(value);
+        } catch (_) {
+          return JSON.parse(JSON.stringify(value));
+        }
+      }
+
+      function persistSettings() {
+        safeSet(STORAGE_KEYS.settings, state.settings);
+      }
+
+      function persistReadings() {
+        safeSet(STORAGE_KEYS.readings, state.readings);
+      }
+
+      function persistAlerts() {
+        safeSet(STORAGE_KEYS.alerts, state.alerts);
+      }
+
+      function persistSessions() {
+        safeSet(STORAGE_KEYS.sessions, state.sessions);
+      }
+
+      // ═══ UTILITIES ═══
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+      const round = (value, decimals = 0) => Number(value.toFixed(decimals));
+      const random = (min, max) => min + Math.random() * (max - min);
+      const choice = (items) => items[Math.floor(Math.random() * items.length)];
+      const nowISO = () => new Date().toISOString();
+
+      function formatTime(value) {
+        return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function formatShortTime(value) {
+        return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+
+      function formatDate(value) {
+        return new Date(value).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+      }
+
+      function formatDuration(ms) {
+        const total = Math.max(0, Math.floor(ms / 1000));
+        const h = String(Math.floor(total / 3600)).padStart(2, "0");
+        const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+        const s = String(total % 60).padStart(2, "0");
+        return `${h}:${m}:${s}`;
+      }
+
+      function escapeHTML(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function levelForScore(score) {
+        if (score >= 80) return "HIGH";
+        if (score >= 50) return "MEDIUM";
+        return "LOW";
+      }
+
+      function colorForScore(score) {
+        if (score >= 80) return getCSS("--green");
+        if (score >= 50) return getCSS("--amber");
+        return getCSS("--red");
+      }
+
+      function getCSS(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      }
+
+      function getSelectedClassroom() {
+        return state.settings.classrooms.find((room) => room.id === state.settings.selectedClassroomId) || state.settings.classrooms[0];
+      }
+
+      function getFilteredReadings(limit = 100) {
+        return state.readings
+          .filter((reading) => reading.classroomId === state.settings.selectedClassroomId)
+          .slice(-limit);
+      }
+
+      function getCurrentReading() {
+        if (state.currentReading) return state.currentReading;
+        const last = getFilteredReadings(1)[0];
+        if (last) return last;
+        return createInitialReading();
+      }
+
+      function createInitialReading() {
+        return normalizeReading({
+          temperature: 23.2,
+          humidity: 55,
+          motion_pir1: true,
+          motion_pir2: true,
+          motion_pir3: true,
+          sound_level: 58,
+          timestamp: nowISO()
+        }, "A.E.G.I.S. Core");
+      }
+
+      function iconForMetric(metric) {
+        const icons = {
+          engagement: "🧠",
+          temperature: "🌡️",
+          humidity: "💧",
+          sound: "🔊",
+          motion: "🏃",
+          air: "🌫️",
+          system: "▣"
+        };
+        return icons[metric] || "🔔";
+      }
+
+      // ═══ SENSOR SIMULATOR ═══
+      function startRealtime() {
+        stopRealtime(false);
+        updateLiveBadge(true);
+        const mode = state.settings.iot.mode;
+        if ((mode === "http" || mode === "thingworx") && getPollingEndpoint()) {
+          startHttpPolling();
+          return;
+        }
+        if (mode === "simulator") {
+          runSensorTick();
+          state.simulatorTimer = window.setInterval(runSensorTick, getTickInterval());
+        }
+      }
+
+      function stopRealtime(markPaused = true) {
+        if (state.simulatorTimer) window.clearInterval(state.simulatorTimer);
+        if (state.httpTimer) window.clearInterval(state.httpTimer);
+        state.simulatorTimer = null;
+        state.httpTimer = null;
+        if (markPaused) updateLiveBadge(false);
+      }
+
+      function getTickInterval() {
+        const speed = state.settings.simulationSpeed;
+        if (speed === "slow") return Math.max(3000, state.settings.refreshInterval || 5000);
+        if (speed === "fast") return 1000;
+        return state.settings.refreshInterval || 3000;
+      }
+
+      function runSensorTick() {
+        const reading = generateSensorReading();
+        ingestReading(reading, "Simulator");
+      }
+
+      function generateSensorReading() {
+        const elapsed = Date.now() - state.sessionStart;
+        const phaseIndex = (Math.floor(elapsed / 120000) + state.phaseOffset) % 3;
+        const phase = ["HIGH", "MEDIUM", "LOW"][phaseIndex];
+        let event = state.sensorModel.forcedEvent;
+        if (state.sensorModel.eventTicks <= 0 && Math.random() < 0.08) {
+          event = choice(["discussion", "warm", "quiet"]);
+          state.sensorModel.eventTicks = Math.floor(random(2, 5));
+        }
+        if (state.sensorModel.eventTicks > 0) {
+          state.sensorModel.eventTicks -= 1;
+        } else {
+          state.sensorModel.forcedEvent = null;
+          event = null;
+        }
+
+        let tempStep = random(-0.3, 0.3);
+        let humidityStep = random(-0.5, 0.5);
+        if (phase === "LOW") tempStep += random(0.05, 0.16);
+        if (event === "warm") tempStep += random(1.2, 2.2);
+        state.sensorModel.temperature = clamp(state.sensorModel.temperature + tempStep, 18, 32);
+        state.sensorModel.humidity = clamp(state.sensorModel.humidity + humidityStep + (event === "warm" ? random(0.8, 1.5) : 0), 32, 86);
+
+        if (Math.random() < 0.018 || event === "warm") {
+          state.sensorModel.temperature = clamp(random(29, 31), 18, 32);
+        }
+
+        let motionProbability = 0.72;
+        if (phase === "HIGH") motionProbability = 0.86;
+        if (phase === "MEDIUM") motionProbability = 0.56;
+        if (phase === "LOW") motionProbability = 0.25;
+        if (event === "quiet") motionProbability *= 0.45;
+
+        let sound = random(48, 68);
+        if (phase === "HIGH") sound = random(56, 70);
+        if (phase === "MEDIUM") sound = random(45, 75);
+        if (phase === "LOW") sound = Math.random() > 0.5 ? random(35, 47) : random(76, 88);
+        if (event === "discussion") sound = random(80, 90);
+        if (event === "quiet") sound = random(34, 45);
+        state.sensorModel.sound_level = clamp(sound, 32, 95);
+
+        const sensorEnabled = state.settings.sensors;
+        const last = getCurrentReading();
+        return {
+          temperature: sensorEnabled.temperature ? state.sensorModel.temperature : last.temperature,
+          humidity: sensorEnabled.humidity ? state.sensorModel.humidity : last.humidity,
+          motion_pir1: sensorEnabled.motion ? Math.random() < motionProbability : last.motion_pir1,
+          motion_pir2: sensorEnabled.motion ? Math.random() < motionProbability + random(-0.08, 0.06) : last.motion_pir2,
+          motion_pir3: sensorEnabled.motion ? Math.random() < motionProbability + random(-0.06, 0.08) : last.motion_pir3,
+          sound_level: sensorEnabled.sound ? state.sensorModel.sound_level : last.sound_level,
+          phase,
+          timestamp: nowISO()
+        };
+      }
+
+      function injectEvent(type) {
+        state.sensorModel.forcedEvent = type;
+        state.sensorModel.eventTicks = 6;
+        if (type === "low_engagement") {
+          state.phaseOffset = (3 + 2 - Math.floor((Date.now() - state.sessionStart) / 120000) % 3) % 3;
+          state.sensorModel.sound_level = 38;
+        }
+        if (type === "high_temp") {
+          state.sensorModel.temperature = 30.4;
+          state.sensorModel.forcedEvent = "warm";
+        }
+        if (type === "noisy") {
+          state.sensorModel.sound_level = 88;
+          state.sensorModel.forcedEvent = "discussion";
+        }
+        toast("Event injected", type.replaceAll("_", " "), "system");
+        runSensorTick();
+      }
+
+      function normalizeReading(raw, source) {
+        const previous = state.currentReading || getFilteredReadings(1)[0] || {};
+        const temperature = numberFrom(raw.temperature ?? raw.temp ?? raw.t, previous.temperature ?? 23.2);
+        const humidity = numberFrom(raw.humidity ?? raw.hum ?? raw.rh, previous.humidity ?? 55);
+        const sound = numberFrom(raw.sound_level ?? raw.sound ?? raw.db ?? raw.noise, previous.sound_level ?? 58);
+        const motion1 = booleanFrom(raw.motion_pir1 ?? raw.pir1 ?? raw.motion1 ?? raw.left, previous.motion_pir1 ?? true);
+        const motion2 = booleanFrom(raw.motion_pir2 ?? raw.pir2 ?? raw.motion2 ?? raw.center, previous.motion_pir2 ?? true);
+        const motion3 = booleanFrom(raw.motion_pir3 ?? raw.pir3 ?? raw.motion3 ?? raw.right, previous.motion_pir3 ?? true);
+        const motionAverage = numberFrom(raw.motion_activity ?? raw.motion, null);
+        const motionPercent = motionAverage === null ? ((Number(motion1) + Number(motion2) + Number(motion3)) / 3) * 100 : clamp(motionAverage, 0, 100);
+        const sessionMinutes = (Date.now() - state.sessionStart) / 60000;
+        const soundScore = clamp(100 - Math.abs(sound - 60) * 2, 0, 100);
+        const tempScore = clamp(100 - Math.abs(temperature - 23) * 8, 0, 100);
+        const timeDecay = sessionMinutes <= 20 ? 100 : clamp(100 - (sessionMinutes - 20) * 1.9, 55, 100);
+        const computedScore = clamp(
+          0.40 * motionPercent +
+          0.25 * soundScore +
+          0.20 * tempScore +
+          0.15 * timeDecay,
+          0,
+          100
+        );
+        const score = clamp(numberFrom(raw.engagement_score ?? raw.engagement, computedScore), 0, 100);
+        const classroom = getSelectedClassroom();
+        const co2 = numberFrom(raw.co2 ?? raw.air_quality ?? raw.mq135, calculateCO2Proxy(temperature, humidity, classroom.capacity, motionPercent));
+        const lightLevel = numberFrom(raw.light_level ?? raw.ldr ?? raw.lux, previous.light_level ?? null);
+        const timestamp = raw.timestamp ? new Date(raw.timestamp).toISOString() : nowISO();
+        return {
+          id: `r-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          timestamp,
+          classroomId: classroom.id,
+          classroomName: classroom.name,
+          source,
+          temperature: round(clamp(temperature, 0, 60), 1),
+          humidity: round(clamp(humidity, 0, 100), 1),
+          motion_pir1: Boolean(motion1),
+          motion_pir2: Boolean(motion2),
+          motion_pir3: Boolean(motion3),
+          motion_activity: round(clamp(motionPercent, 0, 100), 0),
+          sound_level: round(clamp(sound, 0, 120), 1),
+          co2: round(clamp(co2, 350, 2200), 0),
+          light_level: lightLevel === null ? null : round(clamp(lightLevel, 0, 100), 0),
+          sound_score: round(soundScore, 1),
+          temp_score: round(tempScore, 1),
+          time_decay_factor: round(timeDecay, 1),
+          engagement_score: round(score, 0),
+          engagement_level: levelForScore(score),
+          phase: raw.phase || "LIVE"
+        };
+      }
+
+      function numberFrom(value, fallback) {
+        if (value === null || value === undefined || value === "") return fallback;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+      }
+
+      function booleanFrom(value, fallback) {
+        if (typeof value === "boolean") return value;
+        if (typeof value === "number") return value > 0;
+        if (typeof value === "string") {
+          const normalized = value.trim().toLowerCase();
+          if (["true", "1", "yes", "active", "on", "high"].includes(normalized)) return true;
+          if (["false", "0", "no", "inactive", "off", "low"].includes(normalized)) return false;
+        }
+        return Boolean(fallback);
+      }
+
+      function calculateCO2Proxy(temp, humidity, capacity, motion) {
+        const peopleLoad = capacity * (0.38 + motion / 180);
+        return 420 + peopleLoad * 7.4 + Math.max(0, temp - 23) * 26 + Math.max(0, humidity - 55) * 4.2 + random(-28, 28);
+      }
+
+      function ingestReading(raw, source) {
+        const reading = raw.engagement_level ? raw : normalizeReading(raw, source);
+        state.previousReading = state.currentReading;
+        state.currentReading = reading;
+        state.lastUpdatedAt = Date.now();
+        state.readings.push(reading);
+        if (state.readings.length > 100) state.readings.splice(0, state.readings.length - 100);
+        
+        // ═══ STAGE 4: ENGAGEMENT VIGNETTES ═══
+        if(reading.engagement_score >= 80) {
+          document.body.style.boxShadow = 'inset 0 0 100px rgba(0, 255, 85, 0.15)';
+          if(!state.previousReading || state.previousReading.engagement_score < 80) AEGIS_AUDIO.engagementHigh();
+        } else if(reading.engagement_score < 50) {
+          document.body.style.boxShadow = 'inset 0 0 100px rgba(255, 23, 68, 0.25)';
+          if(!state.previousReading || state.previousReading.engagement_score >= 50) AEGIS_AUDIO.engagementLow();
+        } else {
+          document.body.style.boxShadow = 'none';
+        }
+
+        persistReadings();
+        runAlertEngine(reading);
+        updateTopbar();
+        updateCurrentView();
+      }
+
+      function connectIoT() {
+        disconnectIoT();
+        const mode = state.settings.iot.mode;
+        
+        if (mode === "simulator") {
+          state.settings.iot.connected = true;
+          state.settings.iot.lastMessage = "A.E.G.I.S. Training Simulation Active";
+          persistSettings();
+          document.getElementById('sysCloud').classList.remove('offline');
+          document.getElementById('sysSensor').classList.remove('offline');
+          startRealtime();
+          toast("A.E.G.I.S. Core", "Simulator connected with demo data.", "system");
+          return;
+        }
+        
+        if (mode === "websocket") {
+          if (!socket) return;
+          socket.on('new_reading', (data) => {
+            parseDeviceMessage(data, "WebSocket");
+            document.getElementById('sysML').classList.toggle('offline');
+          });
+          socket.on('connect', () => {
+            document.getElementById('sysCloud').classList.remove('offline');
+            state.settings.iot.connected = true;
+            state.settings.iot.lastMessage = "A.E.G.I.S. Uplink Established (WebSocket)";
+            persistSettings();
+            updateLiveBadge(true);
+            toast("A.E.G.I.S. Core", "Secure WebSocket connection established to Flask backend", "system");
+            AEGIS_AUDIO.speak("Hardware sensors are now online.");
+          });
+          socket.on('disconnect', () => {
+            document.getElementById('sysCloud').classList.add('offline');
+            state.settings.iot.connected = false;
+            updateLiveBadge(false);
+          });
+          document.getElementById('sysSensor').classList.remove('offline');
+          return;
+        }
+
+        if (mode === "thingworx" || mode === "http") {
+          state.settings.iot.connected = true;
+          state.settings.iot.lastMessage = mode === "thingworx" ? "ThingWorx proxy polling is active" : "HTTP polling is active";
+          persistSettings();
+          document.getElementById('sysCloud').classList.remove('offline');
+          document.getElementById('sysSensor').classList.remove('offline');
+          startRealtime();
+          toast("A.E.G.I.S. Core", `${mode.toUpperCase()} connection established`, "system");
+          AEGIS_AUDIO.speak("Hardware sensors are now online.");
+          return;
+        }
+
+        if (mode === "serial") {
+          connectSerial();
+          return;
+        }
+      }
+
+      async function connectSerial() {
+        if (!("serial" in navigator)) {
+          state.settings.iot.connected = false;
+          state.settings.iot.lastMessage = "Web Serial is unavailable in this browser";
+          persistSettings();
+          renderView("settings");
+          toast("Serial unavailable", "Use Chrome or Edge with a USB serial device", "system");
+          return;
+        }
+        try {
+          state.serial.port = await navigator.serial.requestPort();
+          await state.serial.port.open({ baudRate: Number(state.settings.iot.baudRate) || 115200 });
+          state.serial.keepReading = true;
+          state.settings.iot.connected = true;
+          state.settings.iot.lastMessage = "Serial stream connected";
+          persistSettings();
+          stopRealtime(false);
+          updateLiveBadge(true);
+          renderView("settings");
+          toast("Serial connected", "Reading JSON lines from USB device", "system");
+          readSerialLoop();
+        } catch (error) {
+          state.settings.iot.connected = false;
+          state.settings.iot.lastMessage = error && error.message ? error.message : "Serial connection failed";
+          persistSettings();
+          renderView("settings");
+        }
+      }
+
+      async function readSerialLoop() {
+        const decoder = new TextDecoderStream();
+        const closed = state.serial.port.readable.pipeTo(decoder.writable);
+        const reader = decoder.readable.getReader();
+        state.serial.reader = reader;
+        let buffer = "";
+        try {
+          while (state.serial.keepReading) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              parseDeviceMessage(line, "Serial");
+            }
+          }
+        } catch (error) {
+          state.settings.iot.lastMessage = error && error.message ? error.message : "Serial stream stopped";
+        } finally {
+          try { reader.releaseLock(); } catch (_) {}
+          try { await closed; } catch (_) {}
+          state.settings.iot.connected = false;
+          persistSettings();
+          updateLiveBadge(false);
+          updateCurrentView();
+        }
+      }
+
+      function connectWebSocket() {
+        disconnectSocket();
+        if (!state.settings.iot.endpoint) {
+          state.settings.iot.lastMessage = "Add a WebSocket endpoint";
+          persistSettings();
+          renderView("settings");
+          return;
+        }
+        try {
+          state.socket = new WebSocket(state.settings.iot.endpoint);
+          state.socket.onopen = () => {
+            state.settings.iot.connected = true;
+            state.settings.iot.lastMessage = "WebSocket connected";
+            persistSettings();
+            stopRealtime(false);
+            updateLiveBadge(true);
+            renderView("settings");
+            toast("WebSocket connected", state.settings.iot.endpoint, "system");
+          };
+          state.socket.onmessage = (event) => parseDeviceMessage(event.data, "WebSocket");
+          state.socket.onerror = () => {
+            state.settings.iot.lastMessage = "WebSocket error";
+            persistSettings();
+            updateCurrentView();
+          };
+          state.socket.onclose = () => {
+            state.settings.iot.connected = false;
+            state.settings.iot.lastMessage = "WebSocket closed";
+            persistSettings();
+            updateLiveBadge(false);
+            updateCurrentView();
+          };
+        } catch (error) {
+          state.settings.iot.connected = false;
+          state.settings.iot.lastMessage = error && error.message ? error.message : "WebSocket connection failed";
+          persistSettings();
+          renderView("settings");
+        }
+      }
+
+      function disconnectSocket() {
+        if (state.socket) {
+          try { state.socket.close(); } catch (_) {}
+        }
+        state.socket = null;
+      }
+
+      function startHttpPolling() {
+        const poll = async () => {
+          const endpoint = getPollingEndpoint();
+          if (!endpoint) return;
+          try {
+            const options = { cache: "no-store", headers: { "Accept": "application/json" } };
+            if (state.settings.iot.mode === "thingworx" && state.settings.iot.appKey) {
+              options.headers["appKey"] = state.settings.iot.appKey;
+            }
+            const response = await fetch(endpoint, options);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = extractSensorPayload(await response.json());
+            state.settings.iot.connected = true;
+            state.settings.iot.lastMessage = state.settings.iot.mode === "thingworx" ? "ThingWorx payload received" : "HTTP payload received";
+            persistSettings();
+            ingestReading(payload, state.settings.iot.mode === "thingworx" ? "ThingWorx" : "HTTP");
+          } catch (error) {
+            state.settings.iot.connected = false;
+            state.settings.iot.lastMessage = error && error.message ? error.message : "Polling failed";
+            persistSettings();
+            updateCurrentView();
+          }
+        };
+        poll();
+        state.httpTimer = window.setInterval(poll, getTickInterval());
+      }
+
+      function getPollingEndpoint() {
+        const mode = state.settings.iot.mode;
+        if (mode === "thingworx") {
+          const base = (state.settings.iot.endpoint || "/api/thingworx/latest").trim();
+          if (!base) return "";
+          const thing = encodeURIComponent(state.settings.iot.thingName || "SmartClassroomThing");
+          if (base.includes("thing=")) return base;
+          return `${base}${base.includes("?") ? "&" : "?"}thing=${thing}`;
+        }
+        return (state.settings.iot.endpoint || "").trim();
+      }
+
+      function extractSensorPayload(payload) {
+        if (!payload || typeof payload !== "object") return payload;
+        if (payload.reading && typeof payload.reading === "object") return payload.reading;
+        if (Array.isArray(payload.rows) && payload.rows[0]) return payload.rows[payload.rows.length - 1];
+        if (payload.data && Array.isArray(payload.data.rows) && payload.data.rows[0]) return payload.data.rows[payload.data.rows.length - 1];
+        if (payload.result && typeof payload.result === "object") return extractSensorPayload(payload.result);
+        return payload;
+      }
+
+      async function disconnectIoT() {
+        stopRealtime();
+        disconnectSocket();
+        if (state.serial.reader) {
+          state.serial.keepReading = false;
+          try { await state.serial.reader.cancel(); } catch (_) {}
+          state.serial.reader = null;
+        }
+        if (state.serial.port) {
+          try { await state.serial.port.close(); } catch (_) {}
+          state.serial.port = null;
+        }
+        state.settings.iot.connected = false;
+        state.settings.iot.lastMessage = "Disconnected";
+        persistSettings();
+        renderView("settings");
+      }
+
+      function parseDeviceMessage(message, source) {
+        try {
+          const payload = typeof message === "string" ? JSON.parse(message.trim()) : message;
+          ingestReading(payload, source);
+          AEGIS_AUDIO.dataReceived(); // Play tick sound
+          
+          // Animate HUD
+          const rCount = document.getElementById('statusReadings');
+          if (rCount) rCount.innerText = parseInt(rCount.innerText) + 1;
+          
+          state.settings.iot.lastMessage = `Encrypted packet parsed at ${formatTime(Date.now())}`;
+          persistSettings();
+        } catch (_) {
+          state.settings.iot.lastMessage = `${source} payload could not be parsed`;
+          persistSettings();
+          updateCurrentView();
+        }
+      }
+
+      // ═══ ALERT ENGINE ═══
+      function runAlertEngine(reading) {
+        const t = state.settings.thresholds;
+        if (reading.temperature > t.temperatureCritical) {
+          createAlert("CRITICAL", "temperature", `Temperature reached ${reading.temperature}°C. Immediate cooling action recommended.`, "Switch on HVAC, improve airflow, and reduce classroom occupancy if needed.");
+        } else if (reading.temperature > t.temperatureWarning) {
+          createAlert("WARNING", "temperature", `Classroom is too warm at ${reading.temperature}°C. Adjust HVAC.`, "Set AC target to 23°C and open ventilation for five minutes.");
+        }
+
+        if (reading.humidity > t.humidityCritical) {
+          createAlert("CRITICAL", "humidity", `Humidity reached ${reading.humidity}%. Comfort and device reliability may be affected.`, "Enable dehumidification and inspect ventilation.");
+        } else if (reading.humidity > t.humidityWarning) {
+          createAlert("WARNING", "humidity", `High humidity detected at ${reading.humidity}%.`, "Increase ventilation and keep doors closed while HVAC runs.");
+        }
+
+        if (reading.sound_level > t.soundCritical) {
+          createAlert("CRITICAL", "sound", `Sound level spiked to ${reading.sound_level} dB.`, "Pause class briefly and restore discussion control.");
+        } else if (reading.sound_level > t.soundWarning) {
+          createAlert("WARNING", "sound", `Excessive noise level: ${reading.sound_level} dB.`, "Use a short reset cue or split discussion into smaller groups.");
+        }
+
+        state.lowEngagementRun = reading.engagement_score < t.engagementCritical ? state.lowEngagementRun + 1 : 0;
+        if (state.lowEngagementRun >= 3) {
+          createAlert("CRITICAL", "engagement", "Sustained low engagement! Consider interactive activity.", "Run a two-minute poll, quick quiz, or peer discussion before continuing.");
+          state.lowEngagementRun = 0;
+        } else if (reading.engagement_score < t.engagementWarning) {
+          createAlert("WARNING", "engagement", `Engagement dropped to ${reading.engagement_score}%.`, "Add a question prompt or practical example to recover attention.");
+        }
+
+        state.lowMotionRun = reading.motion_activity < t.motionInfo ? state.lowMotionRun + 1 : 0;
+        if (state.lowMotionRun >= 5) {
+          createAlert("INFO", "motion", "Low student activity detected.", "Ask students to solve a short in-class task or respond by hand raise.");
+          state.lowMotionRun = 0;
+        }
+
+        if (reading.co2 > 1200) {
+          createAlert("WARNING", "air", `CO2 proxy is elevated at ${reading.co2} ppm.`, "Open ventilation path or increase fresh-air circulation.");
+        }
+      }
+
+      function createAlert(severity, metric, message, recommendation) {
+        const key = `${severity}:${metric}:${message.replace(/\d+(\.\d+)?/g, "#")}`;
+        const last = state.cooldowns[key] || 0;
+        const cooldownMs = severity === "CRITICAL" ? 35000 : 55000;
+        if (Date.now() - last < cooldownMs) return;
+        state.cooldowns[key] = Date.now();
+        const alert = {
+          id: `a-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          timestamp: nowISO(),
+          severity,
+          metric,
+          message,
+          recommendation,
+          classroomId: state.settings.selectedClassroomId,
+          read: false,
+          resolved: false
+        };
+        state.alerts.unshift(alert);
+        if (state.alerts.length > 180) state.alerts.length = 180;
+        persistAlerts();
+        
+        if(severity === "CRITICAL") AEGIS_AUDIO.alertCritical();
+        else AEGIS_AUDIO.alertWarning();
+        
+        toast(`${severity} alert`, message, metric);
+      }
+
+      function getActiveAlerts(limit = 8) {
+        const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+        return state.alerts
+          .filter((alert) => alert.classroomId === state.settings.selectedClassroomId && !alert.resolved && new Date(alert.timestamp).getTime() >= tenMinutesAgo)
+          .slice(0, limit);
+      }
+
+      function getUnreadCount() {
+        return state.alerts.filter((alert) => !alert.read).length;
+      }
+
+      // ═══ CHART MANAGEMENT ═══
+      function destroyCharts() {
+        Object.values(state.charts).forEach((chart) => {
+          if (chart && typeof chart.destroy === "function") chart.destroy();
+        });
+        state.charts = {};
+      }
+
+      function chartOptions(extra = {}) {
+        const grid = "rgba(0, 212, 255, 0.08)";
+        const tick = "rgba(160, 216, 239, 0.7)";
+        return {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 750, easing: "easeOutQuart" },
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { labels: { color: tick, usePointStyle: true, boxWidth: 8, font: { family: "'Share Tech Mono', monospace" } } },
+            tooltip: {
+              backgroundColor: "rgba(2, 8, 16, 0.92)",
+              borderColor: "rgba(0, 212, 255, 0.4)",
+              borderWidth: 1,
+              cornerRadius: 4,
+              padding: 12,
+              titleColor: "#00d4ff",
+              titleFont: { family: "'Share Tech Mono', monospace" },
+              bodyColor: "#a0d8ef",
+              bodyFont: { family: "'Share Tech Mono', monospace" },
+              displayColors: true
+            }
+          },
+          scales: {
+            x: { ticks: { color: tick, maxRotation: 0, font: { family: "'Share Tech Mono', monospace" } }, grid: { color: grid } },
+            y: { ticks: { color: tick, font: { family: "'Share Tech Mono', monospace" } }, grid: { color: grid }, beginAtZero: true, suggestedMax: 100 }
+          },
+          ...extra
+        };
+      }
+
+      const glowPlugin = {
+        id: 'glow',
+        beforeDatasetDraw: (chart) => {
+          const ctx = chart.ctx;
+          ctx.save();
+          ctx.shadowColor = 'rgba(0, 212, 255, 0.6)';
+          ctx.shadowBlur = 12;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        },
+        afterDatasetDraw: (chart) => {
+          chart.ctx.restore();
+        }
+      };
+
+      function makeChart(id, config) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return null;
+        if (!state.chartReady) {
+          const wrap = canvas.closest(".chart-wrap");
+          if (wrap) wrap.innerHTML = `<div class="chart-fallback" style="border-color:var(--blue);color:var(--blue)">A.E.G.I.S. VISUALIZER OFFLINE</div>`;
+          return null;
+        }
+        if(!config.plugins) config.plugins = [];
+        config.plugins.push(glowPlugin);
+        return new Chart(canvas, config);
+      }
+
+      function gradient(ctx, color) {
+        const area = ctx.chart.chartArea;
+        if (!area) return color;
+        const grad = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+        grad.addColorStop(0, color.replace("1)", "0.34)"));
+        grad.addColorStop(1, color.replace("1)", "0.02)"));
+        return grad;
+      }
+
+      function initLiveCharts() {
+        const readings = getFilteredReadings(20);
+        const labels = readings.map((r) => formatShortTime(r.timestamp));
+        state.charts.liveEngagement = makeChart("liveEngagementChart", {
+          type: "line",
+          data: {
+            labels,
+            datasets: [{
+              label: "Engagement Score",
+              data: readings.map((r) => r.engagement_score),
+              borderColor: getCSS("--blue"),
+              backgroundColor: (ctx) => gradient(ctx, "rgba(79,142,247,1)"),
+              fill: true,
+              tension: 0.4,
+              pointRadius: 3,
+              pointHoverRadius: 5
+            }]
+          },
+          options: chartOptions({ scales: { x: chartOptions().scales.x, y: { ...chartOptions().scales.y, min: 0, max: 100 } } })
+        });
+
+        state.charts.liveEnv = makeChart("liveEnvChart", {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Temperature °C",
+                data: readings.map((r) => r.temperature),
+                borderColor: getCSS("--amber"),
+                backgroundColor: "rgba(245,158,11,0.12)",
+                tension: 0.4,
+                yAxisID: "yTemp"
+              },
+              {
+                label: "Humidity %",
+                data: readings.map((r) => r.humidity),
+                borderColor: getCSS("--teal"),
+                backgroundColor: "rgba(0,212,170,0.12)",
+                tension: 0.4,
+                yAxisID: "yHum"
+              }
+            ]
+          },
+          options: chartOptions({
+            scales: {
+              x: chartOptions().scales.x,
+              yTemp: { type: "linear", position: "left", min: 15, max: 35, ticks: { color: getCSS("--text-muted") }, grid: { color: "rgba(148,163,184,0.1)" } },
+              yHum: { type: "linear", position: "right", min: 20, max: 100, ticks: { color: getCSS("--text-muted") }, grid: { drawOnChartArea: false } }
+            }
+          })
+        });
+
+        const current = getCurrentReading();
+        state.charts.motionZones = makeChart("motionBarChart", {
+          type: "bar",
+          data: {
+            labels: ["Left", "Center", "Right"],
+            datasets: [{
+              label: "PIR Activity",
+              data: [current.motion_pir1, current.motion_pir2, current.motion_pir3].map((v) => v ? 100 : 0),
+              backgroundColor: [getCSS("--blue"), getCSS("--teal"), getCSS("--violet")],
+              borderRadius: 8
+            }]
+          },
+          options: chartOptions({
+            scales: {
+              x: chartOptions().scales.x,
+              y: { ...chartOptions().scales.y, min: 0, max: 100, ticks: { color: getCSS("--text-muted"), callback: (v) => `${v}%` } }
+            }
+          })
+        });
+      }
+
+      function updateLiveCharts(reading) {
+        const label = formatShortTime(reading.timestamp);
+        const line = state.charts.liveEngagement;
+        if (line) {
+          pushRolling(line.data.labels, label, 20);
+          pushRolling(line.data.datasets[0].data, reading.engagement_score, 20);
+          line.update("active");
+        }
+        const env = state.charts.liveEnv;
+        if (env) {
+          pushRolling(env.data.labels, label, 20);
+          pushRolling(env.data.datasets[0].data, reading.temperature, 20);
+          pushRolling(env.data.datasets[1].data, reading.humidity, 20);
+          env.update("active");
+        }
+        const bar = state.charts.motionZones;
+        if (bar) {
+          bar.data.datasets[0].data = [reading.motion_pir1, reading.motion_pir2, reading.motion_pir3].map((v) => v ? 100 : 0);
+          bar.update("active");
+        }
+      }
+
+      function pushRolling(array, value, limit) {
+        array.push(value);
+        while (array.length > limit) array.shift();
+      }
+
+      function initHistoricalCharts() {
+        const data = getHistoricalDataset();
+        state.charts.historyArea = makeChart("historyAreaChart", {
+          type: "line",
+          data: {
+            labels: data.daily.map((d) => d.label),
+            datasets: [{
+              label: "Average Engagement",
+              data: data.daily.map((d) => d.avg),
+              borderColor: getCSS("--teal"),
+              backgroundColor: (ctx) => gradient(ctx, "rgba(0,212,170,1)"),
+              fill: true,
+              tension: 0.4
+            }]
+          },
+          options: chartOptions({ scales: { x: chartOptions().scales.x, y: { ...chartOptions().scales.y, min: 0, max: 100 } } })
+        });
+        state.charts.scatter = makeChart("scatterChart", {
+          type: "scatter",
+          data: {
+            datasets: [{
+              label: "Temp vs Engagement",
+              data: data.scatter,
+              backgroundColor: "rgba(79,142,247,0.78)",
+              borderColor: getCSS("--blue"),
+              pointRadius: 5,
+              pointHoverRadius: 7
+            }]
+          },
+          options: chartOptions({
+            scales: {
+              x: { title: { display: true, text: "Temperature °C", color: getCSS("--text-muted") }, ticks: { color: getCSS("--text-muted") }, grid: { color: "rgba(148,163,184,0.1)" } },
+              y: { title: { display: true, text: "Engagement %", color: getCSS("--text-muted") }, min: 0, max: 100, ticks: { color: getCSS("--text-muted") }, grid: { color: "rgba(148,163,184,0.1)" } }
+            }
+          })
+        });
+        state.charts.stacked = makeChart("stackedChart", {
+          type: "bar",
+          data: {
+            labels: data.sessions.map((s) => s.label),
+            datasets: [
+              { label: "High", data: data.sessions.map((s) => s.high), backgroundColor: getCSS("--green"), borderRadius: 6 },
+              { label: "Medium", data: data.sessions.map((s) => s.medium), backgroundColor: getCSS("--amber"), borderRadius: 6 },
+              { label: "Low", data: data.sessions.map((s) => s.low), backgroundColor: getCSS("--red"), borderRadius: 6 }
+            ]
+          },
+          options: chartOptions({
+            scales: {
+              x: { stacked: true, ticks: { color: getCSS("--text-muted") }, grid: { color: "rgba(148,163,184,0.1)" } },
+              y: { stacked: true, ticks: { color: getCSS("--text-muted") }, grid: { color: "rgba(148,163,184,0.1)" }, title: { display: true, text: "Minutes", color: getCSS("--text-muted") } }
+            }
+          })
+        });
+      }
+
+      function initReportChart(session) {
+        if (!session) return;
+        state.charts.reportTimeline = makeChart(`reportChart-${session.id}`, {
+          type: "line",
+          data: {
+            labels: session.timeline.map((p) => p.time),
+            datasets: [{
+              label: "Engagement",
+              data: session.timeline.map((p) => p.score),
+              borderColor: getCSS("--blue"),
+              backgroundColor: (ctx) => gradient(ctx, "rgba(79,142,247,1)"),
+              fill: true,
+              tension: 0.4
+            }]
+          },
+          options: chartOptions({ scales: { x: chartOptions().scales.x, y: { ...chartOptions().scales.y, min: 0, max: 100 } } })
+        });
+      }
+
+      function initEnvironmentCharts() {
+        const readings = getFilteredReadings(30);
+        const labels = readings.map((r) => formatShortTime(r.timestamp));
+        const configs = [
+          ["envTempChart", "Temperature °C", readings.map((r) => r.temperature), getCSS("--amber"), 15, 35],
+          ["envHumidityChart", "Humidity %", readings.map((r) => r.humidity), getCSS("--teal"), 20, 100],
+          ["envSoundChart", "Sound dB", readings.map((r) => r.sound_level), getCSS("--blue"), 20, 100],
+          ["envMotionChart", "Motion %", readings.map((r) => r.motion_activity), getCSS("--violet"), 0, 100]
+        ];
+        configs.forEach(([id, label, data, color, min, max]) => {
+          state.charts[id] = makeChart(id, {
+            type: "line",
+            data: { labels, datasets: [{ label, data, borderColor: color, backgroundColor: color + "22", fill: true, tension: 0.4 }] },
+            options: chartOptions({ scales: { x: chartOptions().scales.x, y: { ...chartOptions().scales.y, min, max } } })
+          });
+        });
+      }
+
+      function updateEnvironmentCharts(reading) {
+        const label = formatShortTime(reading.timestamp);
+        const map = {
+          envTempChart: reading.temperature,
+          envHumidityChart: reading.humidity,
+          envSoundChart: reading.sound_level,
+          envMotionChart: reading.motion_activity
+        };
+        Object.entries(map).forEach(([id, value]) => {
+          const chart = state.charts[id];
+          if (!chart) return;
+          pushRolling(chart.data.labels, label, 30);
+          pushRolling(chart.data.datasets[0].data, value, 30);
+          chart.update("active");
+        });
+      }
+
+      // ═══ NAVIGATION ═══
+      function renderView(viewName = state.currentView) {
+        const view = $("#view");
+        state.currentView = viewName;
+        destroyCharts();
+        setActiveNav(viewName);
+        const titleMap = {
+          live: ["Live Dashboard", "Real-time AI engagement and environment telemetry"],
+          historical: ["Historical Analytics", "Past classroom sessions, patterns, and correlations"],
+          reports: ["Engagement Reports", "AI-generated session summaries and downloadable evidence"],
+          environment: ["Environment Monitor", "Comfort, air quality, and sensor reliability view"],
+          alerts: ["Alerts & Recommendations", "Chronological alert feed and AI action guidance"],
+          settings: ["Settings", "Classroom, threshold, simulation, and IoT configuration"]
+        };
+        $("#topbarTitle").textContent = titleMap[viewName][0];
+        $("#topbarSubtitle").textContent = titleMap[viewName][1];
+        view.classList.add("fade-out");
+        window.setTimeout(() => {
+          view.innerHTML = getViewHTML(viewName);
+          view.classList.remove("fade-out");
+          afterRender(viewName);
+        }, 150);
+      }
+
+      function getViewHTML(viewName) {
+        if (viewName === "historical") return historicalView();
+        if (viewName === "reports") return reportsView();
+        if (viewName === "environment") return environmentView();
+        if (viewName === "alerts") return alertsView();
+        if (viewName === "settings") return settingsView();
+        return liveDashboardView();
+      }
+
+      function afterRender(viewName) {
+        if (viewName === "live") {
+          initLiveCharts();
+          updateLiveDashboard();
+        }
+        if (viewName === "historical") initHistoricalCharts();
+        if (viewName === "reports") {
+          const session = state.sessions.find((s) => s.id === state.expandedSessionId);
+          if (session) initReportChart(session);
+        }
+        if (viewName === "environment") {
+          initEnvironmentCharts();
+          updateEnvironmentView();
+        }
+        if (viewName === "alerts") updateAlertsView();
+        if (viewName === "settings") bindSettingsInputs();
+      }
+
+      function updateCurrentView() {
+        if (state.currentView === "live") updateLiveDashboard();
+        if (state.currentView === "environment") updateEnvironmentView();
+        if (state.currentView === "alerts") updateAlertsView();
+        if (state.currentView === "settings") updateIoTStatusOnly();
+      }
+
+      function setActiveNav(viewName) {
+        $$("[data-view]").forEach((item) => item.classList.toggle("active", item.dataset.view === viewName));
+      }
+
+      function toggleSidebar(force) {
+        const sidebar = $("#sidebar");
+        sidebar.classList.toggle("open", force ?? !sidebar.classList.contains("open"));
+      }
+
+      // ═══ VIEWS ═══
+      function liveDashboardView() {
+        const reading = getCurrentReading();
+        const room = getSelectedClassroom();
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Live Classroom Intelligence</h2>
+              <p class="view__subtitle">Current class state, engagement score, environmental comfort, and AI alerts for ${escapeHTML(room.name)}.</p>
+            </div>
+            <span class="status-pill">Data Source: <strong id="dataSourcePill">${escapeHTML(reading.source || "Simulator")}</strong> · Last updated <strong id="lastUpdatedText">now</strong></span>
+          </div>
+          <section class="grid grid--kpi">
+            ${kpiCard("engagement", "🧠", "Engagement Score", reading.engagement_score, "%", "AI classification", "Optimal ≥ 80")}
+            ${kpiCard("temperature", "🌡️", "Temperature", reading.temperature, "°C", "Optimal 22-24°C", "HVAC indicator")}
+            ${kpiCard("humidity", "💧", "Humidity", reading.humidity, "%", "Optimal 40-60%", "Comfort range")}
+            ${kpiCard("motion", "🏃", "Motion Activity", reading.motion_activity, "%", "PIR zone average", "Left / Center / Right")}
+            ${kpiCard("sound", "🔊", "Sound Level", reading.sound_level, "dB", "Optimal near 60 dB", "Discussion/noise proxy")}
+          </section>
+          <section class="grid grid--3">
+            ${chartCard("Engagement Trend", "Last 20 AI scores", "liveEngagementChart")}
+            ${chartCard("Temperature & Humidity", "Dual-axis environmental trend", "liveEnvChart")}
+            ${chartCard("PIR Motion Zones", "Left, center, and right activity", "motionBarChart")}
+          </section>
+          <section class="dashboard-bottom">
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <h3 class="card__title">Engagement Gauge</h3>
+                  <p class="card__subtitle">ML-style classification from sensor fusion</p>
+                </div>
+                <span class="badge ${reading.engagement_level.toLowerCase()}" id="engagementLevelBadge">${reading.engagement_level}</span>
+              </div>
+              <div class="card__body">
+                <div class="gauge">
+                  <div class="gauge__frame">
+                    <svg class="gauge__svg jarvis-gauge" viewBox="0 0 220 220" aria-label="Engagement gauge">
+                      <!-- Outer dashed ring -->
+                      <circle cx="110" cy="110" r="100" fill="none" stroke="var(--blue)" stroke-width="2" stroke-dasharray="4 8" opacity="0.4" style="animation: spin 30s linear infinite reverse; transform-origin: center;"></circle>
+                      <!-- Inner tracking ring -->
+                      <circle class="gauge__track" cx="110" cy="110" r="88" stroke-width="8"></circle>
+                      <!-- Inner dashed ring -->
+                      <circle cx="110" cy="110" r="75" fill="none" stroke="var(--blue)" stroke-width="1" stroke-dasharray="10 5" opacity="0.6" style="animation: spin 20s linear infinite; transform-origin: center;"></circle>
+                      <circle class="gauge__fill" id="engagementGaugeFill" cx="110" cy="110" r="88" stroke-width="12"></circle>
+                    </svg>
+                    <div class="gauge__center">
+                      <div>
+                        <div class="gauge__value" id="engagementGaugeValue">0</div>
+                        <div class="gauge__label" style="color: var(--blue);">ENGAGEMENT</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <h3 class="card__title">Active Alerts</h3>
+                  <p class="card__subtitle">Live classroom risk queue</p>
+                </div>
+                <span class="badge warning" id="activeAlertCount">${getActiveAlerts(99).length}</span>
+              </div>
+              <div class="card__body">
+                <div class="alerts-list" id="activeAlertsList"></div>
+              </div>
+            </article>
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <h3 class="card__title">Session Info</h3>
+                  <p class="card__subtitle">Current classroom and reading count</p>
+                </div>
+              </div>
+              <div class="card__body">
+                <div class="session-info">
+                  <div class="info-row"><span>Classroom</span><strong>${escapeHTML(room.name)}</strong></div>
+                  <div class="info-row"><span>Subject</span><strong>${escapeHTML(room.subject)}</strong></div>
+                  <div class="info-row"><span>Faculty</span><strong>${escapeHTML(room.faculty)}</strong></div>
+                  <div class="info-row"><span>Started</span><strong>${formatTime(state.sessionStart)}</strong></div>
+                  <div class="info-row"><span>Duration</span><strong id="sessionInfoDuration">${formatDuration(Date.now() - state.sessionStart)}</strong></div>
+                  <div class="info-row"><span>Readings</span><strong id="readingsCount">${getFilteredReadings().length}</strong></div>
+                </div>
+              </div>
+            </article>
+          </section>
+        `;
+      }
+
+      function kpiCard(id, icon, label, value, unit, hint, footer) {
+        return `
+          <article class="card kpi" data-kpi="${id}">
+            <div class="card__body">
+              <div class="kpi__top">
+                <div>
+                  <div class="kpi__label">${label}</div>
+                </div>
+                <div class="kpi__icon">${icon}</div>
+              </div>
+              <div class="kpi__value"><span id="kpi-${id}">${value}</span><span class="kpi__unit">${unit}</span></div>
+              <div class="kpi__bottom">
+                <span>${hint}</span>
+                <span class="delta flat" id="delta-${id}">→ 0</span>
+              </div>
+              <div class="card__subtitle">${footer}</div>
+            </div>
+          </article>
+        `;
+      }
+
+      function chartCard(title, subtitle, canvasId) {
+        return `
+          <article class="card chart-card">
+            <div class="card__header">
+              <div>
+                <h3 class="card__title">${title}</h3>
+                <p class="card__subtitle">${subtitle}</p>
+              </div>
+            </div>
+            <div class="card__body">
+              <div class="chart-wrap"><canvas id="${canvasId}"></canvas></div>
+            </div>
+          </article>
+        `;
+      }
+
+      function updateLiveDashboard() {
+        const reading = getCurrentReading();
+        updateMetric("engagement", reading.engagement_score, "%", state.previousReading && state.previousReading.engagement_score, 0);
+        updateMetric("temperature", reading.temperature, "°C", state.previousReading && state.previousReading.temperature, 1);
+        updateMetric("humidity", reading.humidity, "%", state.previousReading && state.previousReading.humidity, 1);
+        updateMetric("motion", reading.motion_activity, "%", state.previousReading && state.previousReading.motion_activity, 0);
+        updateMetric("sound", reading.sound_level, "dB", state.previousReading && state.previousReading.sound_level, 1);
+        const gauge = $("#engagementGaugeFill");
+        if (gauge) {
+          const radius = 88;
+          const circumference = 2 * Math.PI * radius;
+          gauge.style.strokeDasharray = `${circumference}`;
+          gauge.style.strokeDashoffset = `${circumference - (reading.engagement_score / 100) * circumference}`;
+          gauge.style.stroke = colorForScore(reading.engagement_score);
+        }
+        const gaugeValue = $("#engagementGaugeValue");
+        if (gaugeValue) {
+          if (!window.engagementCountUp) {
+            window.engagementCountUp = new countUp.CountUp('engagementGaugeValue', reading.engagement_score, { duration: 1.5, useEasing: true });
+            if (!window.engagementCountUp.error) window.engagementCountUp.start();
+          } else {
+            window.engagementCountUp.update(reading.engagement_score);
+          }
+        }
+        const levelBadge = $("#engagementLevelBadge");
+        if (levelBadge) {
+          levelBadge.className = `badge ${reading.engagement_level.toLowerCase()}`;
+          levelBadge.textContent = reading.engagement_level;
+        }
+        const list = $("#activeAlertsList");
+        if (list) list.innerHTML = renderActiveAlerts();
+        const count = $("#activeAlertCount");
+        if (count) count.textContent = getActiveAlerts(99).length;
+        const duration = $("#sessionInfoDuration");
+        if (duration) duration.textContent = formatDuration(Date.now() - state.sessionStart);
+        const readingsCount = $("#readingsCount");
+        if (readingsCount) readingsCount.textContent = getFilteredReadings().length;
+        const lastUpdated = $("#lastUpdatedText");
+        if (lastUpdated) lastUpdated.textContent = secondsAgo(state.lastUpdatedAt);
+        const source = $("#dataSourcePill");
+        if (source) source.textContent = reading.source || state.settings.iot.mode;
+        updateLiveCharts(reading);
+      }
+
+      function updateMetric(id, value, unit, previous, decimals) {
+        const el = $(`#kpi-${id}`);
+        const delta = $(`#delta-${id}`);
+        if (!el) return;
+        const finalValue = decimals ? Number(value).toFixed(decimals) : Math.round(value);
+        if (state.firstMetricPaint) {
+          countUp(el, 0, Number(value), decimals, 650);
+        } else {
+          el.textContent = finalValue;
+        }
+        if (delta) {
+          const diff = previous === null || previous === undefined ? 0 : value - previous;
+          const arrow = diff > 0.05 ? "↑" : diff < -0.05 ? "↓" : "→";
+          delta.className = `delta ${diff > 0.05 ? "up" : diff < -0.05 ? "down" : "flat"}`;
+          delta.textContent = `${arrow} ${Math.abs(diff).toFixed(decimals)}${unit}`;
+        }
+        const card = $(`[data-kpi="${id}"]`);
+        if (card) {
+          card.style.borderColor = id === "engagement" ? colorForScore(value) + "77" : "var(--border)";
+        }
+        window.setTimeout(() => { state.firstMetricPaint = false; }, 800);
+      }
+
+      function countUp(el, start, end, decimals, duration) {
+        const initial = performance.now();
+        const frame = (time) => {
+          const progress = clamp((time - initial) / duration, 0, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          const value = start + (end - start) * eased;
+          el.textContent = decimals ? value.toFixed(decimals) : Math.round(value);
+          if (progress < 1) requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }
+
+      function renderActiveAlerts() {
+        const alerts = getActiveAlerts(8);
+        if (!alerts.length) {
+          return `<div class="empty-state"><div><div class="empty-state__icon">✅</div><strong>No active alerts</strong><br><span>Classroom state is stable.</span></div></div>`;
+        }
+        return alerts.map(alertItemHTML).join("");
+      }
+
+      function alertItemHTML(alert) {
+        return `
+          <div class="alert-item ${alert.severity.toLowerCase()}">
+            <div class="alert-item__icon">${iconForMetric(alert.metric)}</div>
+            <div>
+              <p class="alert-item__title">${escapeHTML(alert.message)}</p>
+              <div class="alert-item__meta">${formatTime(alert.timestamp)} · ${escapeHTML(alert.metric)}</div>
+            </div>
+            <span class="badge ${alert.severity.toLowerCase()}">${alert.severity}</span>
+          </div>
+        `;
+      }
+
+      function secondsAgo(timestamp) {
+        if (!timestamp) return "now";
+        const secs = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+        if (secs < 2) return "now";
+        if (secs < 60) return `${secs}s ago`;
+        return `${Math.floor(secs / 60)}m ago`;
+      }
+
+      function historicalView() {
+        const data = getHistoricalDataset();
+        const heatmap = renderHeatmap(data.heatmap);
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Historical Analytics</h2>
+              <p class="view__subtitle">Session-level trends generated from stored classroom telemetry and mock baseline data.</p>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="segmented" role="group">
+              ${["7", "30", "custom"].map((range) => `<button class="segmented__btn ${state.analyticsRange === range ? "active" : ""}" data-range="${range}">${range === "custom" ? "Custom" : `Last ${range} days`}</button>`).join("")}
+            </div>
+            <input class="input ${state.analyticsRange === "custom" ? "" : "hidden"}" id="customFrom" type="date">
+            <input class="input ${state.analyticsRange === "custom" ? "" : "hidden"}" id="customTo" type="date">
+          </div>
+          <section class="stat-row">
+            <div class="stat"><div class="stat__label">Total Sessions</div><div class="stat__value">${data.stats.total}</div></div>
+            <div class="stat"><div class="stat__label">Average Engagement</div><div class="stat__value">${data.stats.avg}%</div></div>
+            <div class="stat"><div class="stat__label">Best Time Slot</div><div class="stat__value">${data.stats.best}</div></div>
+            <div class="stat"><div class="stat__label">Worst Time Slot</div><div class="stat__value">${data.stats.worst}</div></div>
+          </section>
+          <section class="grid grid--2">
+            ${chartCard("Average Engagement Per Day", "Area trend by date range", "historyAreaChart")}
+            <article class="card chart-card">
+              <div class="card__header"><div><h3 class="card__title">Days vs Hours Heatmap</h3><p class="card__subtitle">Engagement intensity across teaching slots</p></div></div>
+              <div class="card__body heatmap-wrap">${heatmap}</div>
+            </article>
+            ${chartCard("Temperature vs Engagement", "Correlation scatter plot", "scatterChart")}
+            ${chartCard("High / Medium / Low Time", "Stacked minutes per session", "stackedChart")}
+          </section>
+        `;
+      }
+
+      function getHistoricalDataset() {
+        const sessions = getRangeSessions();
+        const byDay = new Map();
+        sessions.forEach((session) => {
+          const key = new Date(session.startTime).toISOString().slice(0, 10);
+          if (!byDay.has(key)) byDay.set(key, []);
+          byDay.get(key).push(session.avgEngagement);
+        });
+        const daily = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([date, scores]) => ({
+          label: new Date(date).toLocaleDateString([], { month: "short", day: "2-digit" }),
+          avg: round(scores.reduce((a, b) => a + b, 0) / scores.length, 0)
+        }));
+        const scatter = sessions.flatMap((s) => s.timeline.filter((_, index) => index % 3 === 0).map((p) => ({ x: p.temp, y: p.score })));
+        const sessionBars = sessions.slice(-8).map((s) => ({
+          label: `${new Date(s.startTime).toLocaleDateString([], { month: "short", day: "2-digit" })} ${s.slot}`,
+          high: s.levelMinutes.high,
+          medium: s.levelMinutes.medium,
+          low: s.levelMinutes.low
+        }));
+        const slots = {};
+        sessions.forEach((s) => {
+          if (!slots[s.slot]) slots[s.slot] = [];
+          slots[s.slot].push(s.avgEngagement);
+        });
+        const slotStats = Object.entries(slots).map(([slot, values]) => ({ slot, avg: values.reduce((a, b) => a + b, 0) / values.length }));
+        const best = slotStats.length ? slotStats.reduce((a, b) => b.avg > a.avg ? b : a).slot : "09:00";
+        const worst = slotStats.length ? slotStats.reduce((a, b) => b.avg < a.avg ? b : a).slot : "14:00";
+        const avg = sessions.length ? round(sessions.reduce((sum, s) => sum + s.avgEngagement, 0) / sessions.length, 0) : 0;
+        return {
+          daily,
+          scatter,
+          sessions: sessionBars,
+          heatmap: buildHeatmap(sessions),
+          stats: { total: sessions.length, avg, best, worst }
+        };
+      }
+
+      function getRangeSessions() {
+        const roomId = state.settings.selectedClassroomId;
+        const days = state.analyticsRange === "30" ? 30 : state.analyticsRange === "custom" ? 14 : 7;
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        return state.sessions.filter((session) => session.classroomId === roomId && new Date(session.startTime).getTime() >= cutoff);
+      }
+
+      function buildHeatmap(sessions) {
+        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        const slots = ["09:00", "10:00", "11:00", "14:00", "15:00"];
+        return days.map((day) => slots.map((slot) => {
+          const values = sessions.filter((s) => s.day === day && s.slot === slot).map((s) => s.avgEngagement);
+          return values.length ? round(values.reduce((a, b) => a + b, 0) / values.length, 0) : 0;
+        }));
+      }
+
+      function renderHeatmap(matrix) {
+        const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        const slots = ["09", "10", "11", "14", "15"];
+        let html = `<div class="heatmap"><div></div>${slots.map((slot) => `<div class="heatmap__label">${slot}:00</div>`).join("")}`;
+        matrix.forEach((row, i) => {
+          html += `<div class="heatmap__label">${days[i]}</div>`;
+          row.forEach((value) => {
+            const hue = value >= 80 ? "34,197,94" : value >= 50 ? "245,158,11" : "239,68,68";
+            const alpha = value ? clamp(value / 100, 0.28, 0.95) : 0.12;
+            html += `<div class="heatmap__cell" style="background: rgba(${hue}, ${alpha})">${value || "-"}</div>`;
+          });
+        });
+        html += "</div>";
+        return html;
+      }
+
+      function reportsView() {
+        const sessions = getRangeSessions().slice().sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Engagement Reports</h2>
+              <p class="view__subtitle">Expandable session cards with key moments, chart evidence, and AI-generated observations.</p>
+            </div>
+          </div>
+          <section class="reports">
+            ${sessions.length ? sessions.map(reportCardHTML).join("") : `<div class="empty-state"><div><div class="empty-state__icon">📋</div><strong>No sessions found</strong><br><span>Import mock data or collect live readings.</span></div></div>`}
+          </section>
+        `;
+      }
+
+      function reportCardHTML(session) {
+        const expanded = state.expandedSessionId === session.id;
+        return `
+          <article class="report-card">
+            <button class="report-card__summary" data-report-toggle="${session.id}">
+              <div>
+                <strong>${formatDate(session.startTime)} · ${escapeHTML(session.subject)}</strong>
+                <div class="card__subtitle">${escapeHTML(session.classroomName)} · ${escapeHTML(session.faculty)}</div>
+              </div>
+              <div><strong>${session.durationMinutes} min</strong><div class="card__subtitle">Duration</div></div>
+              <div><strong>${session.avgEngagement}%</strong><div class="card__subtitle">Average engagement</div></div>
+              <span class="badge ${levelForScore(session.avgEngagement).toLowerCase()}">${levelForScore(session.avgEngagement)}</span>
+            </button>
+            ${expanded ? reportDetailsHTML(session) : ""}
+          </article>
+        `;
+      }
+
+      function reportDetailsHTML(session) {
+        const peak = session.timeline.reduce((a, b) => b.score > a.score ? b : a);
+        const drop = session.timeline.reduce((a, b) => b.score < a.score ? b : a);
+        const insights = buildSessionInsights(session, peak, drop);
+        return `
+          <div class="report-card__details">
+            <div class="chart-wrap chart-wrap--small"><canvas id="reportChart-${session.id}"></canvas></div>
+            <div class="key-moments">
+              <div class="key-moment">🚀 Engagement peaked at ${peak.time} with score ${peak.score}.</div>
+              <div class="key-moment">📉 Engagement dropped at ${drop.time} with score ${drop.score}.</div>
+            </div>
+            <div class="button-row">
+              <button class="btn btn--primary" data-download-report="${session.id}">⬇ Download Printable Report</button>
+              <button class="btn" data-mark-reviewed="${session.id}">✓ Mark Reviewed</button>
+            </div>
+            <div class="insight-list">${insights.map((insight) => `<div class="insight">${insight}</div>`).join("")}</div>
+          </div>
+        `;
+      }
+
+      function buildSessionInsights(session, peak, drop) {
+        const avgTemp = session.timeline.reduce((sum, p) => sum + p.temp, 0) / session.timeline.length;
+        const sounds = session.timeline.map((p) => p.sound);
+        const meanSound = sounds.reduce((a, b) => a + b, 0) / sounds.length;
+        const variance = sounds.reduce((sum, value) => sum + Math.pow(value - meanSound, 2), 0) / sounds.length;
+        const insights = [];
+        if (avgTemp > 26) insights.push("⚠️ High temperature detected — consider HVAC optimization.");
+        if (drop.score < session.avgEngagement - 18 || session.durationMinutes >= 40) insights.push("📉 Engagement dipped after 20 minutes — suggest activity break.");
+        if (variance > 75) insights.push("🔊 High noise variance detected — may indicate discussion or distraction.");
+        if (peak.score >= 90) insights.push("✅ Strong response period found — reuse this teaching pattern in future sessions.");
+        if (!insights.length) insights.push("✅ Stable classroom conditions supported consistent engagement throughout this session.");
+        return insights;
+      }
+
+      function environmentView() {
+        const reading = getCurrentReading();
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Environment Monitor</h2>
+              <p class="view__subtitle">Sensor-level gauges for classroom comfort, sound discipline, motion activity, and MQ-135-style air quality proxy.</p>
+            </div>
+            <span class="status-pill">CO2 Proxy: <strong id="co2Proxy">${reading.co2} ppm</strong></span>
+          </div>
+          <section class="grid grid--4">
+            ${envGaugeCard("temp", "Temperature", reading.temperature, "°C", 15, 35, "🌡️")}
+            ${envGaugeCard("humidity", "Humidity", reading.humidity, "%", 20, 100, "💧")}
+            ${envGaugeCard("sound", "Sound Level", reading.sound_level, "dB", 20, 100, "🔊")}
+            ${envGaugeCard("motion", "Motion Activity", reading.motion_activity, "%", 0, 100, "🏃")}
+          </section>
+          <section class="grid grid--2" style="margin-top:16px">
+            ${chartCard("Temperature Trend", "Last 30 readings", "envTempChart")}
+            ${chartCard("Humidity Trend", "Last 30 readings", "envHumidityChart")}
+            ${chartCard("Sound Level Trend", "Last 30 readings", "envSoundChart")}
+            ${chartCard("Motion Activity Trend", "Last 30 readings", "envMotionChart")}
+          </section>
+          <section class="grid grid--2" style="margin-top:16px">
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Environmental Status</h3><p class="card__subtitle">Sensor state with classroom recommendations</p></div></div>
+              <div class="card__body"><div class="status-panel" id="environmentStatusPanel"></div></div>
+            </article>
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Air Quality Simulation</h3><p class="card__subtitle">MQ-135 proxy derived from comfort and occupancy signals</p></div></div>
+              <div class="card__body">
+                <div class="session-info">
+                  <div class="info-row"><span>CO2 Proxy</span><strong id="airCo2">${reading.co2} ppm</strong></div>
+                  <div class="info-row"><span>Estimated Occupancy Load</span><strong id="airPeople">${Math.round(getSelectedClassroom().capacity * (0.38 + reading.motion_activity / 180))} students</strong></div>
+                  <div class="info-row"><span>Ventilation State</span><strong id="airState">${reading.co2 > 1200 ? "Needs fresh air" : "Balanced"}</strong></div>
+                  <div class="info-row"><span>Model Input</span><strong>Temp + Humidity + PIR</strong></div>
+                </div>
+              </div>
+            </article>
+          </section>
+        `;
+      }
+
+      function envGaugeCard(id, label, value, unit, min, max, icon) {
+        const pct = clamp((value - min) / (max - min), 0, 1);
+        const deg = -90 + pct * 180;
+        return `
+          <article class="card">
+            <div class="card__body env-gauge">
+              <svg class="semi-gauge" viewBox="0 0 220 130" aria-label="${label}">
+                <path class="semi-gauge__track" d="M 30 110 A 80 80 0 0 1 190 110"></path>
+                <path class="semi-gauge__zone" stroke="${getCSS("--green")}" d="M 30 110 A 80 80 0 0 1 88 36"></path>
+                <path class="semi-gauge__zone" stroke="${getCSS("--amber")}" d="M 88 36 A 80 80 0 0 1 150 54"></path>
+                <path class="semi-gauge__zone" stroke="${getCSS("--red")}" d="M 150 54 A 80 80 0 0 1 190 110"></path>
+                <g class="semi-gauge__needle" id="needle-${id}" style="transform: rotate(${deg}deg)">
+                  <line x1="110" y1="110" x2="110" y2="42" stroke="${getCSS("--text")}" stroke-width="4" stroke-linecap="round"></line>
+                  <circle cx="110" cy="110" r="8" fill="${getCSS("--blue")}"></circle>
+                </g>
+              </svg>
+              <div class="env-gauge__value"><span id="env-${id}">${value}</span>${unit}</div>
+              <div class="env-gauge__label">${icon} ${label}</div>
+            </div>
+          </article>
+        `;
+      }
+
+      function updateEnvironmentView() {
+        const reading = getCurrentReading();
+        setEnvGauge("temp", reading.temperature, 15, 35, 1);
+        setEnvGauge("humidity", reading.humidity, 20, 100, 1);
+        setEnvGauge("sound", reading.sound_level, 20, 100, 1);
+        setEnvGauge("motion", reading.motion_activity, 0, 100, 0);
+        const panel = $("#environmentStatusPanel");
+        if (panel) panel.innerHTML = renderEnvironmentStatuses(reading);
+        const co2 = $("#co2Proxy");
+        if (co2) co2.textContent = `${reading.co2} ppm`;
+        const airCo2 = $("#airCo2");
+        if (airCo2) airCo2.textContent = `${reading.co2} ppm`;
+        const airPeople = $("#airPeople");
+        if (airPeople) airPeople.textContent = `${Math.round(getSelectedClassroom().capacity * (0.38 + reading.motion_activity / 180))} students`;
+        const airState = $("#airState");
+        if (airState) airState.textContent = reading.co2 > 1200 ? "Needs fresh air" : "Balanced";
+        updateEnvironmentCharts(reading);
+      }
+
+      function setEnvGauge(id, value, min, max, decimals) {
+        const el = $(`#env-${id}`);
+        if (el) el.textContent = decimals ? Number(value).toFixed(decimals) : Math.round(value);
+        const needle = $(`#needle-${id}`);
+        if (needle) {
+          const pct = clamp((value - min) / (max - min), 0, 1);
+          needle.style.transform = `rotate(${-90 + pct * 180}deg)`;
+        }
+      }
+
+      function renderEnvironmentStatuses(reading) {
+        const items = [
+          sensorStatus("temperature", "Temperature", reading.temperature > state.settings.thresholds.temperatureCritical ? "CRITICAL" : reading.temperature > state.settings.thresholds.temperatureWarning ? "WARNING" : "OPTIMAL", `Room temperature is ${reading.temperature}°C — ${reading.temperature > 28 ? "above optimal. Recommend HVAC adjustment." : "inside comfort range."}`),
+          sensorStatus("humidity", "Humidity", reading.humidity > state.settings.thresholds.humidityCritical ? "CRITICAL" : reading.humidity > state.settings.thresholds.humidityWarning ? "WARNING" : "OPTIMAL", `Humidity is ${reading.humidity}% — ${reading.humidity > 70 ? "increase ventilation." : "stable for classroom comfort."}`),
+          sensorStatus("sound", "Sound", reading.sound_level > state.settings.thresholds.soundCritical ? "CRITICAL" : reading.sound_level > state.settings.thresholds.soundWarning ? "WARNING" : "OPTIMAL", `Sound level is ${reading.sound_level} dB — ${reading.sound_level > 85 ? "restore discussion control." : "within expected class activity."}`),
+          sensorStatus("motion", "Motion", reading.motion_activity < state.settings.thresholds.motionInfo ? "WARNING" : "OPTIMAL", `Motion activity is ${reading.motion_activity}% — ${reading.motion_activity < 20 ? "try a quick active-learning prompt." : "students are responsive."}`),
+          sensorStatus("air", "Air Quality", reading.co2 > 1400 ? "CRITICAL" : reading.co2 > 1200 ? "WARNING" : "OPTIMAL", `CO2 proxy is ${reading.co2} ppm — ${reading.co2 > 1200 ? "increase fresh-air circulation." : "ventilation looks balanced."}`)
+        ];
+        return items.join("");
+      }
+
+      function sensorStatus(metric, name, status, rec) {
+        const badgeClass = status === "OPTIMAL" ? "optimal" : status.toLowerCase();
+        return `
+          <div class="sensor-status">
+            <div class="sensor-status__icon">${iconForMetric(metric)}</div>
+            <div><div class="sensor-status__name">${name}</div><div class="sensor-status__rec">${rec}</div></div>
+            <span class="badge ${badgeClass}">${status}</span>
+          </div>
+        `;
+      }
+
+      function alertsView() {
+        const today = new Date().toDateString();
+        const todayAlerts = state.alerts.filter((a) => new Date(a.timestamp).toDateString() === today);
+        const counts = todayAlerts.reduce((acc, alert) => {
+          acc[alert.metric] = (acc[alert.metric] || 0) + 1;
+          return acc;
+        }, {});
+        const frequent = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        const resolved = state.alerts.filter((a) => a.resolved).length;
+        const resolutionRate = state.alerts.length ? Math.round((resolved / state.alerts.length) * 100) : 0;
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Alerts & Recommendations</h2>
+              <p class="view__subtitle">Chronological alert feed with severity, affected metric, and context-specific actions.</p>
+            </div>
+          </div>
+          <section class="stat-row">
+            <div class="stat"><div class="stat__label">Alerts Today</div><div class="stat__value">${todayAlerts.length}</div></div>
+            <div class="stat"><div class="stat__label">Most Frequent Type</div><div class="stat__value">${frequent ? frequent[0] : "None"}</div></div>
+            <div class="stat"><div class="stat__label">Resolution Rate</div><div class="stat__value">${resolutionRate}%</div></div>
+            <div class="stat"><div class="stat__label">Unread Alerts</div><div class="stat__value">${getUnreadCount()}</div></div>
+          </section>
+          <section class="alerts-page">
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Alert Feed</h3><p class="card__subtitle">Newest alerts appear first</p></div><button class="btn btn--ghost" data-clear-read>✓ Mark all read</button></div>
+              <div class="card__body"><div class="alert-feed" id="alertFeed">${renderAlertFeed()}</div></div>
+            </article>
+            <aside class="card ai-panel">
+              <div class="card__header"><div><h3 class="card__title">AI Recommendation Panel</h3><p class="card__subtitle">Updated every 30 seconds</p></div></div>
+              <div class="card__body"><div class="rec-list" id="aiRecommendations">${renderRecommendations()}</div></div>
+            </aside>
+          </section>
+        `;
+      }
+
+      function renderAlertFeed() {
+        if (!state.alerts.length) return `<div class="empty-state"><div><div class="empty-state__icon">✅</div><strong>No alerts stored</strong><br><span>Rules will appear here when thresholds are crossed.</span></div></div>`;
+        return state.alerts.map((alert) => `
+          <div class="alert-item ${alert.severity.toLowerCase()}">
+            <div class="alert-item__icon">${iconForMetric(alert.metric)}</div>
+            <div>
+              <p class="alert-item__title">${escapeHTML(alert.message)}</p>
+              <div class="alert-item__meta">${formatDate(alert.timestamp)} ${formatTime(alert.timestamp)} · ${escapeHTML(alert.metric)} · ${alert.resolved ? "Resolved" : "Open"}</div>
+            </div>
+            <div class="button-row">
+              <span class="badge ${alert.severity.toLowerCase()}">${alert.severity}</span>
+              <button class="btn" data-alert-action="${alert.id}">Action</button>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      function updateAlertsView() {
+        const feed = $("#alertFeed");
+        if (feed) feed.innerHTML = renderAlertFeed();
+        const rec = $("#aiRecommendations");
+        if (rec) rec.innerHTML = renderRecommendations();
+      }
+
+      function renderRecommendations() {
+        const r = getCurrentReading();
+        const tips = [];
+        if (r.engagement_score < 50) tips.push("Run a two-question quiz now; low engagement is the dominant risk.");
+        if (r.temperature > 28) tips.push(`Reduce room temperature from ${r.temperature}°C toward 23°C before the next lecture block.`);
+        if (r.sound_level > 85) tips.push("Split discussion into smaller groups to lower sound variance.");
+        if (r.motion_activity < 25) tips.push("Use a quick hands-on activity to increase PIR activity and attention recovery.");
+        if (r.co2 > 1200) tips.push("Open ventilation or increase fresh-air mode for five minutes.");
+        if (!tips.length) tips.push("Classroom conditions are stable. Continue monitoring engagement trend for sudden drops.");
+        tips.push(`Current AI level: ${r.engagement_level}; last score ${r.engagement_score}%.`);
+        return tips.map((tip) => `<div class="rec">${tip}</div>`).join("");
+      }
+
+      function settingsView() {
+        const settings = state.settings;
+        return `
+          <div class="view__header">
+            <div>
+              <h2 class="view__title">Settings</h2>
+              <p class="view__subtitle">Configure classrooms, thresholds, live sensor source, simulation behavior, and local project data.</p>
+            </div>
+          </div>
+          <section class="grid grid--2">
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Classroom Configuration</h3><p class="card__subtitle">Saved in browser localStorage</p></div></div>
+              <div class="card__body">
+                <div class="form-grid">
+                  <div class="field"><label>Name</label><input class="input" id="roomName" value=""></div>
+                  <div class="field"><label>Room Number</label><input class="input" id="roomNumber" value=""></div>
+                  <div class="field"><label>Capacity</label><input class="input" id="roomCapacity" type="number" min="1" value=""></div>
+                  <div class="field"><label>Subject</label><input class="input" id="roomSubject" value=""></div>
+                  <div class="field"><label>Faculty</label><input class="input" id="roomFaculty" value=""></div>
+                </div>
+                <div class="button-row" style="margin-top:14px">
+                  <button class="btn btn--primary" data-save-classroom>💾 Save Classroom</button>
+                  <button class="btn" data-reset-classroom-form>↺ Reset</button>
+                </div>
+                <div class="classroom-list">${settings.classrooms.map(classroomItemHTML).join("")}</div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">IoT Device Connection</h3><p class="card__subtitle">ThingWorx via Render proxy, Serial USB, WebSocket, HTTP polling, or simulator</p></div></div>
+              <div class="card__body">
+                <div class="form-grid">
+                  <div class="field">
+                    <label>Input Mode</label>
+                    <select class="select" id="iotMode">
+                      ${["simulator", "thingworx", "serial", "websocket", "http"].map((mode) => `<option value="${mode}" ${settings.iot.mode === mode ? "selected" : ""}>${mode.toUpperCase()}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>ThingWorx Thing Name</label>
+                    <input class="input" id="iotThingName" value="${escapeHTML(settings.iot.thingName || "SmartClassroomThing")}">
+                  </div>
+                  <div class="field">
+                    <label>Baud Rate</label>
+                    <input class="input" id="iotBaud" type="number" value="${settings.iot.baudRate}">
+                  </div>
+                  <div class="field" style="grid-column: 1 / -1">
+                    <label>ThingWorx AppKey (If pulling directly from Cloud)</label>
+                    <input class="input" id="iotAppKey" type="password" value="${escapeHTML(settings.iot.appKey || "")}" placeholder="Enter AppKey for direct ThingWorx polling">
+                  </div>
+                  <div class="field" style="grid-column: 1 / -1">
+                    <label>Endpoint</label>
+                    <input class="input" id="iotEndpoint" value="${escapeHTML(settings.iot.endpoint)}" placeholder="http://172.16.78.20:7080/Thingworx/Things/SmartClassroomThing/Properties/*">
+                  </div>
+                </div>
+              <div class="iot-status" id="iotStatus">
+                  <strong>${settings.iot.connected ? "Connected" : "Ready"}</strong>
+                  <span>${escapeHTML(settings.iot.lastMessage || "Waiting for data source")}</span>
+                  <span class="mono">JSON keys: temperature, humidity, motion_pir1, motion_pir2, motion_pir3, sound_level, co2/mq135, light_level/ldr</span>
+                  <span>Render proxy env vars: TWX_BASE_URL, TWX_APP_KEY, TWX_THING_NAME, optional DEVICE_TOKEN.</span>
+                  <span>The ThingWorx Application Key must stay in Render environment variables, not in this HTML file.</span>
+                  <span>Hardware map: ESP32, DHT11/DHT22, 3× HC-SR501 PIR zones, KY-037/KY-038 sound sensor, optional MQ-135 and LDR.</span>
+                  <span>For HTTP mode, the ESP32 endpoint should return JSON and allow CORS with Access-Control-Allow-Origin: *.</span>
+                </div>
+                <div class="button-row" style="margin-top:14px">
+                  <button class="btn btn--success" data-connect-iot>🔌 Connect</button>
+                  <button class="btn" data-disconnect-iot>⏸ Disconnect</button>
+                  <button class="btn btn--primary" data-test-payload>🧪 Test Payload</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Threshold Settings</h3><p class="card__subtitle">Rules used by the alert engine</p></div></div>
+              <div class="card__body">
+                ${rangeField("temperatureWarning", "Temperature Warning", 22, 35, "°C")}
+                ${rangeField("temperatureCritical", "Temperature Critical", 26, 40, "°C")}
+                ${rangeField("humidityWarning", "Humidity Warning", 50, 90, "%")}
+                ${rangeField("humidityCritical", "Humidity Critical", 60, 95, "%")}
+                ${rangeField("engagementWarning", "Engagement Warning", 20, 80, "%")}
+                ${rangeField("engagementCritical", "Engagement Critical", 10, 60, "%")}
+                ${rangeField("soundWarning", "Sound Warning", 60, 100, "dB")}
+                ${rangeField("soundCritical", "Sound Critical", 70, 110, "dB")}
+                ${rangeField("motionInfo", "Low Motion Info", 5, 60, "%")}
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Simulation Controls</h3><p class="card__subtitle">Useful for classroom demo events</p></div></div>
+              <div class="card__body">
+                <div class="form-grid">
+                  <div class="field">
+                    <label>Speed</label>
+                    <select class="select" id="simulationSpeed">
+                      ${["slow", "normal", "fast"].map((speed) => `<option value="${speed}" ${settings.simulationSpeed === speed ? "selected" : ""}>${speed.toUpperCase()}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Refresh Interval</label>
+                    <input class="input" id="refreshInterval" type="number" min="1000" step="500" value="${settings.refreshInterval}">
+                  </div>
+                </div>
+                <div class="form-grid" style="margin-top:14px">
+                  ${sensorSwitch("temperature", "Temperature Sensor")}
+                  ${sensorSwitch("humidity", "Humidity Sensor")}
+                  ${sensorSwitch("motion", "PIR Motion Sensors")}
+                  ${sensorSwitch("sound", "Sound Sensor")}
+                  ${sensorSwitch("air", "Air Quality Proxy")}
+                </div>
+                <div class="button-row" style="margin-top:14px">
+                  <button class="btn" data-inject="high_temp">🌡️ Simulate High Temp</button>
+                  <button class="btn" data-inject="low_engagement">📉 Simulate Low Engagement</button>
+                  <button class="btn" data-inject="noisy">🔊 Simulate Noisy Class</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">User Preferences</h3><p class="card__subtitle">Dashboard behavior and visual mode</p></div></div>
+              <div class="card__body">
+                <div class="sensor-status">
+                  <div class="sensor-status__icon">◐</div>
+                  <div><div class="sensor-status__name">Light Mode</div><div class="sensor-status__rec">Switches dashboard theme while keeping charts readable.</div></div>
+                  <label class="switch"><input id="themeToggle" type="checkbox" ${settings.theme === "light" ? "checked" : ""}><span></span></label>
+                </div>
+                <div class="sensor-status" style="margin-top:12px">
+                  <div class="sensor-status__icon">🔈</div>
+                  <div><div class="sensor-status__name">Notification Sound</div><div class="sensor-status__rec">Uses a short browser beep for new alerts.</div></div>
+                  <label class="switch"><input id="soundToggle" type="checkbox" ${settings.soundNotifications ? "checked" : ""}><span></span></label>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__header"><div><h3 class="card__title">Data Management</h3><p class="card__subtitle">Export, reset, or regenerate project data</p></div></div>
+              <div class="card__body">
+                <div class="button-row">
+                  <button class="btn btn--primary" data-export-json>⬇ Export Data as JSON</button>
+                  <button class="btn" data-import-mock>⬆ Import Mock Dataset</button>
+                  <button class="btn btn--danger" data-clear-all>🗑 Clear All Data</button>
+                </div>
+                <div class="iot-status" style="margin-top:14px">
+                  <strong>Project Info</strong>
+                  <span>AI-Powered Smart Classroom Engagement & Learning Analytics System</span>
+                  <span>Hardware from project requirement file: 2× ESP32, 2× DHT11/DHT22, 3× PIR, 2× sound modules, optional MQ-135 and LDR.</span>
+                  <span>Team: Anubhav Singh - Team Leader, Bhartendu Ji - IoT Dev, Stuti Mittal - Frontend/QA</span>
+                  <span>Mentor: Department Faculty Mentor · GLA University · B.Tech CSE AI-ML</span>
+                </div>
+              </div>
+            </article>
+          </section>
+        `;
+      }
+
+      function classroomItemHTML(room) {
+        return `
+          <div class="classroom-item">
+            <div><strong>${escapeHTML(room.name)}</strong><div class="card__subtitle">${escapeHTML(room.roomNumber)} · Capacity ${room.capacity} · ${escapeHTML(room.subject)}</div></div>
+            <div class="button-row">
+              <button class="btn" data-edit-classroom="${room.id}">Edit</button>
+              <button class="btn btn--ghost" data-select-classroom="${room.id}">Use</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function rangeField(key, label, min, max, unit) {
+        const value = state.settings.thresholds[key];
+        return `
+          <div class="field" style="margin-bottom:12px">
+            <label>${label}</label>
+            <div class="range-row">
+              <input type="range" min="${min}" max="${max}" value="${value}" data-threshold="${key}">
+              <strong><span id="threshold-${key}">${value}</span>${unit}</strong>
+            </div>
+          </div>
+        `;
+      }
+
+      function sensorSwitch(key, label) {
+        return `
+          <div class="sensor-status">
+            <div class="sensor-status__icon">${iconForMetric(key === "air" ? "air" : key)}</div>
+            <div><div class="sensor-status__name">${label}</div></div>
+            <label class="switch"><input type="checkbox" data-sensor-toggle="${key}" ${state.settings.sensors[key] ? "checked" : ""}><span></span></label>
+          </div>
+        `;
+      }
+
+      function bindSettingsInputs() {
+        updateClassroomForm();
+      }
+
+      function updateClassroomForm(room) {
+        const selected = room || state.settings.classrooms.find((r) => r.id === state.editingClassroomId);
+        if (!$("#roomName")) return;
+        $("#roomName").value = selected ? selected.name : "";
+        $("#roomNumber").value = selected ? selected.roomNumber : "";
+        $("#roomCapacity").value = selected ? selected.capacity : "";
+        $("#roomSubject").value = selected ? selected.subject : "";
+        $("#roomFaculty").value = selected ? selected.faculty : "";
+      }
+
+      function updateIoTStatusOnly() {
+        const status = $("#iotStatus");
+        if (status) {
+          status.innerHTML = `
+            <strong>${state.settings.iot.connected ? "Connected" : "Ready"}</strong>
+            <span>${escapeHTML(state.settings.iot.lastMessage || "Waiting for data source")}</span>
+            <span class="mono">JSON keys: temperature, humidity, motion_pir1, motion_pir2, motion_pir3, sound_level, co2/mq135, light_level/ldr</span>
+            <span>Render proxy env vars: TWX_BASE_URL, TWX_APP_KEY, TWX_THING_NAME, optional DEVICE_TOKEN.</span>
+            <span>The ThingWorx Application Key must stay in Render environment variables, not in this HTML file.</span>
+            <span>Hardware map: ESP32, DHT11/DHT22, 3× HC-SR501 PIR zones, KY-037/KY-038 sound sensor, optional MQ-135 and LDR.</span>
+            <span>For HTTP mode, the ESP32 endpoint should return JSON and allow CORS with Access-Control-Allow-Origin: *.</span>
+          `;
+        }
+      }
+
+      // ═══ MOCK HISTORICAL DATA ═══
+      function ensureMockData() {
+        if (state.sessions.length) return;
+        state.sessions = generateMockSessions();
+        persistSessions();
+      }
+
+      function generateMockSessions() {
+        const sessions = [];
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const slots = ["09:00", "10:00", "11:00", "14:00", "15:00"];
+        const subjects = ["Artificial Intelligence", "IoT Systems", "Machine Learning", "Data Visualization", "Deep Learning Lab"];
+        for (let d = 1; d <= 32; d++) {
+          const date = new Date();
+          date.setDate(date.getDate() - d);
+          for (const classroom of state.settings.classrooms) {
+            const count = d % 3 === 0 ? 1 : 2;
+            for (let i = 0; i < count; i++) {
+              const slot = slots[(d + i + classroom.id.charCodeAt(0)) % slots.length];
+              const [hour, minute] = slot.split(":").map(Number);
+              const start = new Date(date);
+              start.setHours(hour, minute, 0, 0);
+              const duration = choice([45, 50, 55, 60]);
+              const base = clamp(random(58, 88) - (hour >= 14 ? random(4, 12) : 0), 35, 95);
+              const timeline = [];
+              for (let m = 0; m < duration; m += 3) {
+                const drift = m > 24 ? -random(0, 11) : random(-4, 6);
+                const score = round(clamp(base + drift + Math.sin(m / 7) * 8 + random(-7, 7), 25, 98), 0);
+                const temp = round(clamp(23 + (hour >= 14 ? random(1, 4.5) : random(-1, 2)) + m / 90 + random(-0.8, 0.8), 20, 31), 1);
+                const humidity = round(clamp(52 + random(-9, 16), 36, 78), 1);
+                const sound = round(clamp(60 + random(-14, 18) + (score > 82 ? random(3, 9) : 0), 38, 90), 1);
+                timeline.push({
+                  time: new Date(start.getTime() + m * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  score,
+                  temp,
+                  humidity,
+                  sound,
+                  motion: round(clamp(score + random(-18, 10), 0, 100), 0)
+                });
+              }
+              const avg = round(timeline.reduce((sum, p) => sum + p.score, 0) / timeline.length, 0);
+              const levels = timeline.reduce((acc, p) => {
+                if (p.score >= 80) acc.high += 3;
+                else if (p.score >= 50) acc.medium += 3;
+                else acc.low += 3;
+                return acc;
+              }, { high: 0, medium: 0, low: 0 });
+              sessions.push({
+                id: `s-${start.getTime()}-${classroom.id}-${i}`,
+                startTime: start.toISOString(),
+                classroomId: classroom.id,
+                classroomName: classroom.name,
+                subject: subjects[(d + i) % subjects.length],
+                faculty: classroom.faculty,
+                durationMinutes: duration,
+                avgEngagement: avg,
+                day: dayNames[start.getDay()],
+                slot,
+                timeline,
+                levelMinutes: levels,
+                reviewed: false
+              });
+            }
+          }
+        }
+        return sessions;
+      }
+
+      // ═══ UI EVENTS ═══
+      document.addEventListener("click", (event) => {
+        if(event.target.tagName === 'BUTTON' || event.target.closest('button')) {
+          AEGIS_AUDIO.click();
+        }
+        
+        const viewButton = event.target.closest("[data-view]");
+        if (viewButton) {
+          renderView(viewButton.dataset.view);
+          toggleSidebar(false);
+          return;
+        }
+        if (event.target.closest("#mobileMenu")) {
+          toggleSidebar();
+          return;
+        }
+        if (event.target.matches("[data-modal-close]")) {
+          hideModal();
+          return;
+        }
+        const rangeBtn = event.target.closest("[data-range]");
+        if (rangeBtn) {
+          state.analyticsRange = rangeBtn.dataset.range;
+          renderView("historical");
+          return;
+        }
+        const toggle = event.target.closest("[data-report-toggle]");
+        if (toggle) {
+          const id = toggle.dataset.reportToggle;
+          state.expandedSessionId = state.expandedSessionId === id ? null : id;
+          renderView("reports");
+          return;
+        }
+        const download = event.target.closest("[data-download-report]");
+        if (download) {
+          downloadReport(download.dataset.downloadReport);
+          return;
+        }
+        const reviewed = event.target.closest("[data-mark-reviewed]");
+        if (reviewed) {
+          const session = state.sessions.find((s) => s.id === reviewed.dataset.markReviewed);
+          if (session) {
+            session.reviewed = true;
+            persistSessions();
+            toast("Report reviewed", session.subject, "system");
+          }
+          return;
+        }
+        const alertAction = event.target.closest("[data-alert-action]");
+        if (alertAction) {
+          showAlertAction(alertAction.dataset.alertAction);
+          return;
+        }
+        if (event.target.closest("[data-clear-read]")) {
+          state.alerts.forEach((alert) => { alert.read = true; });
+          persistAlerts();
+          updateTopbar();
+          renderView("alerts");
+          return;
+        }
+        const editRoom = event.target.closest("[data-edit-classroom]");
+        if (editRoom) {
+          state.editingClassroomId = editRoom.dataset.editClassroom;
+          updateClassroomForm();
+          return;
+        }
+        const selectRoom = event.target.closest("[data-select-classroom]");
+        if (selectRoom) {
+          state.settings.selectedClassroomId = selectRoom.dataset.selectClassroom;
+          persistSettings();
+          populateClassroomSelect();
+          renderView(state.currentView);
+          return;
+        }
+        if (event.target.closest("[data-save-classroom]")) {
+          saveClassroomFromForm();
+          return;
+        }
+        if (event.target.closest("[data-reset-classroom-form]")) {
+          state.editingClassroomId = null;
+          updateClassroomForm(null);
+          return;
+        }
+        const inject = event.target.closest("[data-inject]");
+        if (inject) {
+          injectEvent(inject.dataset.inject);
+          return;
+        }
+        if (event.target.closest("[data-connect-iot]")) {
+          saveIoTForm();
+          connectIoT();
+          return;
+        }
+        if (event.target.closest("[data-disconnect-iot]")) {
+          disconnectIoT();
+          return;
+        }
+        if (event.target.closest("[data-test-payload]")) {
+          parseDeviceMessage(JSON.stringify({
+            temperature: round(random(22, 31), 1),
+            humidity: round(random(42, 76), 1),
+            motion_pir1: Math.random() > 0.35,
+            motion_pir2: Math.random() > 0.35,
+            motion_pir3: Math.random() > 0.35,
+            sound_level: round(random(48, 89), 1)
+          }), "Test Payload");
+          return;
+        }
+        if (event.target.closest("[data-export-json]")) {
+          exportJSON();
+          return;
+        }
+        if (event.target.closest("[data-import-mock]")) {
+          state.sessions = generateMockSessions();
+          persistSessions();
+          toast("Mock dataset imported", `${state.sessions.length} sessions ready`, "system");
+          renderView("settings");
+          return;
+        }
+        if (event.target.closest("[data-clear-all]")) {
+          confirmClearAll();
+        }
+      });
+
+      document.addEventListener("input", (event) => {
+        const threshold = event.target.closest("[data-threshold]");
+        if (threshold) {
+          state.settings.thresholds[threshold.dataset.threshold] = Number(threshold.value);
+          const output = $(`#threshold-${threshold.dataset.threshold}`);
+          if (output) output.textContent = threshold.value;
+          persistSettings();
+          return;
+        }
+        const sensor = event.target.closest("[data-sensor-toggle]");
+        if (sensor) {
+          state.settings.sensors[sensor.dataset.sensorToggle] = sensor.checked;
+          persistSettings();
+          return;
+        }
+        if (event.target.id === "themeToggle") {
+          state.settings.theme = event.target.checked ? "light" : "dark";
+          persistSettings();
+          applyTheme();
+          renderView(state.currentView);
+          return;
+        }
+        if (event.target.id === "soundToggle") {
+          state.settings.soundNotifications = event.target.checked;
+          persistSettings();
+          return;
+        }
+        if (event.target.id === "simulationSpeed") {
+          state.settings.simulationSpeed = event.target.value;
+          persistSettings();
+          if (state.settings.iot.mode === "simulator" && state.simulatorTimer) startRealtime();
+          return;
+        }
+        if (event.target.id === "refreshInterval") {
+          state.settings.refreshInterval = clamp(Number(event.target.value) || 3000, 1000, 30000);
+          persistSettings();
+          if (state.simulatorTimer || state.httpTimer) startRealtime();
+        }
+      });
+
+      document.addEventListener("change", (event) => {
+        if (event.target.id === "classroomSelect") {
+          state.settings.selectedClassroomId = event.target.value;
+          persistSettings();
+          state.currentReading = null;
+          renderView(state.currentView);
+          return;
+        }
+        if (["iotMode", "iotEndpoint", "iotThingName", "iotBaud"].includes(event.target.id)) saveIoTForm();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key.toLowerCase() === "s" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
+          if (state.simulatorTimer || state.httpTimer || state.settings.iot.connected) {
+            disconnectIoT();
+          } else {
+            connectIoT();
+          }
+        }
+      });
+
+      function saveClassroomFromForm() {
+        const name = $("#roomName").value.trim();
+        const roomNumber = $("#roomNumber").value.trim();
+        const capacity = Number($("#roomCapacity").value);
+        const subject = $("#roomSubject").value.trim();
+        const faculty = $("#roomFaculty").value.trim();
+        if (!name || !roomNumber || !capacity || !subject || !faculty) {
+          showModal("Missing classroom fields", "Please fill classroom name, room number, capacity, subject, and faculty before saving.", [{ label: "OK", className: "btn--primary", action: hideModal }]);
+          return;
+        }
+        const payload = { id: state.editingClassroomId || `room-${Date.now()}`, name, roomNumber, capacity, subject, faculty };
+        const index = state.settings.classrooms.findIndex((room) => room.id === payload.id);
+        if (index >= 0) state.settings.classrooms[index] = payload;
+        else state.settings.classrooms.push(payload);
+        state.settings.selectedClassroomId = payload.id;
+        state.editingClassroomId = null;
+        persistSettings();
+        populateClassroomSelect();
+        renderView("settings");
+        toast("Classroom saved", name, "system");
+      }
+
+      function saveIoTForm() {
+        const mode = $("#iotMode");
+        const endpoint = $("#iotEndpoint");
+        const thingName = $("#iotThingName");
+        const baud = $("#iotBaud");
+        const appKey = $("#iotAppKey");
+        if (mode) state.settings.iot.mode = mode.value;
+        if (endpoint) state.settings.iot.endpoint = endpoint.value.trim();
+        if (thingName) state.settings.iot.thingName = thingName.value.trim() || "SmartClassroomThing";
+        if (baud) state.settings.iot.baudRate = Number(baud.value) || 115200;
+        if (appKey) state.settings.iot.appKey = appKey.value.trim();
+        state.settings.iot.connected = false;
+        persistSettings();
+      }
+
+      function showAlertAction(id) {
+        const alert = state.alerts.find((item) => item.id === id);
+        if (!alert) return;
+        alert.read = true;
+        showModal(
+          `${alert.severity} · ${alert.metric}`,
+          `<strong>${escapeHTML(alert.message)}</strong><br><br>${escapeHTML(alert.recommendation)}<br><br><span class="mono">${formatDate(alert.timestamp)} ${formatTime(alert.timestamp)}</span>`,
+          [
+            { label: "Mark Resolved", className: "btn--success", action: () => { alert.resolved = true; alert.read = true; persistAlerts(); hideModal(); renderView("alerts"); updateTopbar(); } },
+            { label: "Close", className: "", action: () => { persistAlerts(); hideModal(); renderView("alerts"); updateTopbar(); } }
+          ]
+        );
+      }
+
+      function confirmClearAll() {
+        showModal(
+          "Clear all local data",
+          "This removes readings, alerts, generated sessions, and saved settings from this browser. The page will rebuild the default project state.",
+          [
+            { label: "Clear Data", className: "btn--danger", action: () => {
+              Object.values(STORAGE_KEYS).forEach(safeRemove);
+              state.readings = [];
+              state.alerts = [];
+              state.sessions = generateMockSessions();
+              state.settings = mergeSettings(DEFAULT_SETTINGS, {});
+              state.currentReading = null;
+              persistSettings();
+              persistSessions();
+              hideModal();
+              applyTheme();
+              populateClassroomSelect();
+              renderView("settings");
+              toast("Data cleared", "Default dataset restored", "system");
+            } },
+            { label: "Cancel", className: "", action: hideModal }
+          ]
+        );
+      }
+
+      function showModal(title, body, actions = []) {
+        $("#modalTitle").textContent = title;
+        $("#modalBody").innerHTML = body;
+        $("#modalFooter").innerHTML = actions.map((action, index) => `<button class="btn ${action.className || ""}" data-modal-action="${index}">${action.label}</button>`).join("");
+        $("#modalBackdrop").classList.remove("hidden");
+        $$("[data-modal-action]").forEach((button) => {
+          button.addEventListener("click", () => actions[Number(button.dataset.modalAction)].action());
+        });
+      }
+
+      function hideModal() {
+        $("#modalBackdrop").classList.add("hidden");
+      }
+
+      function toast(title, message, metric) {
+        const host = $("#toastHost");
+        const el = document.createElement("div");
+        el.className = "toast";
+        el.innerHTML = `<div class="toast__icon">${iconForMetric(metric)}</div><div><p class="toast__title">${escapeHTML(title)}</p><p class="toast__msg">${escapeHTML(message)}</p></div>`;
+        host.appendChild(el);
+        if (state.settings.soundNotifications) beep();
+        window.setTimeout(() => {
+          el.style.animation = "fadeOut 0.2s ease both";
+          window.setTimeout(() => el.remove(), 220);
+        }, 4000);
+      }
+
+      function beep() {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContext) return;
+          const ctx = new AudioContext();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = 740;
+          gain.gain.value = 0.035;
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          window.setTimeout(() => { osc.stop(); ctx.close(); }, 120);
+        } catch (_) {}
+      }
+
+      function exportJSON() {
+        const data = {
+          exportedAt: nowISO(),
+          settings: state.settings,
+          readings: state.readings,
+          alerts: state.alerts,
+          sessions: state.sessions
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `smartroom-analytics-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function downloadReport(id) {
+        const session = state.sessions.find((s) => s.id === id);
+        if (!session) return;
+        const peak = session.timeline.reduce((a, b) => b.score > a.score ? b : a);
+        const drop = session.timeline.reduce((a, b) => b.score < a.score ? b : a);
+        const insights = buildSessionInsights(session, peak, drop);
+        const win = window.open("", "_blank");
+        if (!win) {
+          showModal("Report blocked", "The browser blocked the printable report tab. Allow pop-ups for this file and try again.", [{ label: "OK", className: "btn--primary", action: hideModal }]);
+          return;
+        }
+        win.document.write(`
+          <!DOCTYPE html><html><head><title>SmartRoom Report</title>
+          <style>
+            body{font-family:system-ui;margin:32px;color:#172033;line-height:1.5}
+            h1{color:#0f4fb8} .stat{display:inline-block;margin:8px 12px 8px 0;padding:12px 16px;border:1px solid #d7dfef;border-radius:8px}
+            table{border-collapse:collapse;width:100%;margin-top:20px} td,th{border:1px solid #d7dfef;padding:8px;text-align:left}
+          </style></head><body>
+          <h1>SmartRoom Analytics Session Report</h1>
+          <p><strong>${escapeHTML(session.classroomName)}</strong> · ${escapeHTML(session.subject)} · ${formatDate(session.startTime)}</p>
+          <div class="stat"><strong>${session.avgEngagement}%</strong><br>Average Engagement</div>
+          <div class="stat"><strong>${session.durationMinutes} min</strong><br>Duration</div>
+          <div class="stat"><strong>${levelForScore(session.avgEngagement)}</strong><br>AI Level</div>
+          <h2>Key Moments</h2>
+          <p>Engagement peaked at ${peak.time} with score ${peak.score}. Engagement dropped at ${drop.time} with score ${drop.score}.</p>
+          <h2>AI Insights</h2>
+          <ul>${insights.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>
+          <h2>Timeline Sample</h2>
+          <table><thead><tr><th>Time</th><th>Score</th><th>Temp</th><th>Humidity</th><th>Sound</th></tr></thead>
+          <tbody>${session.timeline.map((p) => `<tr><td>${p.time}</td><td>${p.score}</td><td>${p.temp}°C</td><td>${p.humidity}%</td><td>${p.sound} dB</td></tr>`).join("")}</tbody></table>
+          </body></html>
+        `);
+        win.document.close();
+        win.print();
+      }
+
+      // ═══ TOPBAR AND INIT ═══
+      function populateClassroomSelect() {
+        const select = $("#classroomSelect");
+        select.innerHTML = state.settings.classrooms.map((room) => `<option value="${room.id}" ${room.id === state.settings.selectedClassroomId ? "selected" : ""}>${escapeHTML(room.name)}</option>`).join("");
+      }
+
+      function updateTopbar() {
+        const now = new Date();
+        $("#clockText").textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        $("#sessionTimer").textContent = formatDuration(Date.now() - state.sessionStart);
+        const unread = getUnreadCount();
+        const badge = $("#unreadBadge");
+        badge.textContent = unread > 99 ? "99+" : unread;
+        badge.classList.toggle("hidden", unread === 0);
+        if (state.currentView === "live") {
+          const lastUpdated = $("#lastUpdatedText");
+          if (lastUpdated) lastUpdated.textContent = secondsAgo(state.lastUpdatedAt);
+          const duration = $("#sessionInfoDuration");
+          if (duration) duration.textContent = formatDuration(Date.now() - state.sessionStart);
+        }
+      }
+
+      function updateLiveBadge(running) {
+        const badge = $("#liveBadge");
+        badge.classList.toggle("paused", !running);
+        badge.textContent = running ? "LIVE" : "PAUSED";
+      }
+
+      function applyTheme() {
+        document.body.classList.toggle("light", state.settings.theme === "light");
+      }
+
+      function init() {
+        applyTheme();
+        ensureMockData();
+        populateClassroomSelect();
+        if (!state.readings.length) {
+          const initial = createInitialReading();
+          state.currentReading = initial;
+          state.readings.push(initial);
+          persistReadings();
+        } else {
+          state.currentReading = state.readings[state.readings.length - 1];
+        }
+        state.clockTimer = window.setInterval(updateTopbar, 1000);
+        state.aiTipTimer = window.setInterval(() => {
+          if (state.currentView === "alerts") updateAlertsView();
+        }, 30000);
+        updateTopbar();
+        
+        // Removed auto-loading hidden toggle, now handled by startAegisBoot.
+      }
+
+      window.initializeDashboardCore = () => {
+        renderView("live");
+        connectIoT();
+        
+        // Start uptime counter
+        setInterval(() => {
+           let sec = Math.floor((Date.now() - state.sessionStart) / 1000);
+           let h = Math.floor(sec/3600); let m = Math.floor((sec%3600)/60); let s = sec%60;
+           document.getElementById('statusUptime').innerText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+        }, 1000);
+      };
+
+      init();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Environment variables
+.env
+.env.local
+
+# SQLite database (auto-created on server)
+*.db
+*.sqlite3
+
+# ML model artifacts (commit these intentionally if needed)
+# ml_models/*.pkl
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# Render build artifacts
+.render/
+
+# Logs
+*.log
